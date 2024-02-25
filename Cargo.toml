@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "type_iter",
+    "type_iter_macros",
+    "playground",
+]
