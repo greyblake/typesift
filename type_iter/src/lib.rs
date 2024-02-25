@@ -1,6 +1,8 @@
 #![feature(specialization)]
 
-/// If __Container__ implements __TypeIter<T>__, then __Container__ can be traversed over all nested __T__
+pub use type_iter_macros::TypeIter;
+
+/// If `Container` implements `TypeIter<T>`, then `Container` can be traversed over all nested `T`
 /// that it contains.
 ///
 /// Note: It would be great to get rid of `Box` someday, but the moment it does not work well with `#![feature(specialization)]`.
@@ -11,17 +13,15 @@ pub trait TypeIter<T> {
 /// This crate exist only to facilitate usage of TypeIter implementation.
 /// It allows a consumer to explicitly specify `T` type used  in `TypeIter<T>` implementation.
 pub trait TypeValues {
-    fn type_values<'a, T>(&'a self) -> impl Iterator<Item = &'a T>
+    fn type_values<'a, T>(&'a self) -> Box<dyn Iterator<Item = &'a T> + 'a>
     where
-        Self: TypeIter<T>,
-        T: 'a;
+        Self: TypeIter<T>;
 }
 
 impl<C> TypeValues for C {
-    fn type_values<'a, T>(&'a self) -> impl Iterator<Item = &'a T>
+    fn type_values<'a, T>(&'a self) -> Box<dyn Iterator<Item = &'a T> + 'a>
     where
         Self: TypeIter<T>,
-        T: 'a,
     {
         self.type_iter()
     }
@@ -58,6 +58,17 @@ impl_type_iter_for_primitive!(f32);
 impl_type_iter_for_primitive!(f64);
 impl_type_iter_for_primitive!(bool);
 impl_type_iter_for_primitive!(char);
+impl_type_iter_for_primitive!(String);
+
+
+impl<T, Needle, const N: usize> TypeIter<Needle> for [T; N]
+where
+    T: TypeIter<Needle>,
+{
+    fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Needle> + 'a> {
+        Box::new(self.iter().flat_map(|x| x.type_iter()))
+    }
+}
 
 macro_rules! impl_type_iter_for_collection {
     ($($collection_type:ident),*) => {
@@ -66,7 +77,7 @@ macro_rules! impl_type_iter_for_collection {
             where
                 T: TypeIter<Id>,
             {
-                default fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Id> + 'a> {
+                fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Id> + 'a> {
                     Box::new(self.iter().flat_map(|x| x.type_iter()))
                 }
             }
@@ -82,7 +93,7 @@ macro_rules! impl_type_iter_for_kv_collection {
                 K: TypeIter<Id>,
                 V: TypeIter<Id>,
             {
-                default fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Id> + 'a> {
+                fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Id> + 'a> {
                     let keys_iter = self.keys().flat_map(|x| x.type_iter());
                     let values_iter = self.values().flat_map(|x| x.type_iter());
                     let iter = keys_iter.chain(values_iter);
@@ -103,3 +114,32 @@ impl_type_iter_for_collection!(BTreeSet);
 impl_type_iter_for_collection!(BinaryHeap);
 impl_type_iter_for_kv_collection!(HashMap);
 impl_type_iter_for_kv_collection!(BTreeMap);
+
+impl<Needle, Container> TypeIter<Needle> for Option<Container>
+where
+    Container: TypeIter<Needle>,
+{
+    fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Needle> + 'a> {
+        match self {
+            Some(container) => container.type_iter(),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+}
+
+impl<Needle, T, E> TypeIter<Needle> for Result<T, E>
+where
+    T: TypeIter<Needle>,
+    E: TypeIter<Needle>,
+{
+    fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a Needle> + 'a> {
+        match self {
+            Ok(container) => container.type_iter(),
+            Err(container) => container.type_iter(),
+        }
+    }
+}
+
+
+
+// TODO: Support tuples!
