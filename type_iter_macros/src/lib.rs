@@ -124,5 +124,34 @@ fn gen_impl_for_struct_unnamed(container_type: &Ident, needle_type: &Ident, fiel
 }
 
 fn gen_impl_for_enum(container_type: &Ident, data_enum: &DataEnum, needle_type: &Ident) -> TokenStream {
-    unimplemented!("gen_impl_for_enum() is not implemented yet")
+
+    quote! {
+        impl TypeIter<#needle_type> for #container_type {
+            fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a #needle_type> + 'a> {
+                let empty_iter = std::iter::empty();
+                todo!("Implement for enum");
+                Box::new(empty_iter)
+            }
+        }
+    }
+
+    // let variant_impls = data_enum.variants.iter().map(|variant| {
+    //     let variant_name = &variant.ident;
+    //     let variant_impl = gen_impl_for_enum_variant(container_type, variant, needle_type);
+    //     quote! {
+    //         #variant_impl
+    //     }
+    // });
+
+    // quote! {
+    //     #(#variant_impls)*
+    // }
 }
+
+// fn gen_impl_for_enum_variant(container_type: &Ident, variant: &syn::Variant, needle_type: &Ident) -> TokenStream {
+//     match &variant.fields {
+//         Fields::Named(fields) => gen_impl_for_enum_variant_named(container_type, &variant.ident, needle_type, fields),
+//         Fields::Unnamed(fields) => gen_impl_for_enum_variant_unnamed(container_type, &variant.ident, needle_type, fields),
+//         Fields::Unit => gen_impl_for_enum_variant_unit(container_type, &variant.ident, needle_type),
+//     }
+// }
