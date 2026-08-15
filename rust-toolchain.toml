@@ -1,4 +1,0 @@
-[toolchain]
-# `type_iter` relies on `#![feature(specialization)]`, which is only available on nightly.
-channel = "nightly-2026-09-15"
-components = ["rustfmt", "clippy"]

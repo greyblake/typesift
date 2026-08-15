@@ -1,157 +1,120 @@
-use proc_macro2::{Ident, TokenStream, TokenTree};
-use quote::quote;
-use syn::spanned::Spanned;
-use syn::{parenthesized, Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed, FieldsUnnamed, Generics, Meta, Token};
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote};
+use syn::{
+    Data, DataEnum, DeriveInput, Error, Fields, Index, Member, parse_macro_input, parse_quote,
+};
 
-
-
-#[proc_macro_derive(TypeIter, attributes(type_iter))]
-pub fn type_iter(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    expand_type_iter(input)
-        .unwrap_or_else(|e| syn::Error::to_compile_error(&e))
+/// Derives `type_iter::TypeIter`: the value itself is offered first, then each field is visited in
+/// declaration order.
+///
+/// Every type parameter gets a `TypeIter` bound. Types with lifetime parameters are rejected
+/// because `TypeIter` requires `'static` types, and unions because the active field is unknown.
+#[proc_macro_derive(TypeIter)]
+pub fn derive_type_iter(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    expand(input)
+        .unwrap_or_else(Error::into_compile_error)
         .into()
 }
 
+fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
+    if let Some(lifetime) = input.generics.lifetimes().next() {
+        return Err(Error::new_spanned(
+            lifetime,
+            "`TypeIter` requires `'static` types, so it cannot be derived for types with lifetime parameters",
+        ));
+    }
 
-fn expand_type_iter(input: proc_macro::TokenStream) -> Result<TokenStream, syn::Error> {
-    let derive_input: DeriveInput = syn::parse(input)?;
-    let needle_types = parse_needle_types(&derive_input)?;
-    gen_impl(&derive_input, &needle_types)
-}
-
-
-fn parse_needle_types(input: &DeriveInput) -> Result<Vec<Ident>, syn::Error> {
-    let maybe_attr = input.attrs.iter().find(|attr| attr.path().is_ident("type_iter"));
-    let Some(attr) = maybe_attr else {
-        return Ok(Vec::new());
-    };
-    let list = match &attr.meta {
-        Meta::List(list) => list,
-        _ => {
-            return Err(syn::Error::new(
-                attr.span(),
-                "Expected `type_iter` attribute to be a list",
+    let body = match &input.data {
+        Data::Struct(data) => visit_struct(&data.fields),
+        Data::Enum(data) => visit_enum(data),
+        Data::Union(data) => {
+            return Err(Error::new_spanned(
+                data.union_token,
+                "`TypeIter` cannot be derived for unions",
             ));
         }
     };
-    let idents: Vec<Ident> = list.tokens.clone().into_iter().filter_map(|token| {
-        if let TokenTree::Ident(ident) = token {
-            Some(ident)
-        } else {
-            None
+
+    for param in input.generics.type_params_mut() {
+        param.bounds.push(parse_quote!(::type_iter::TypeIter));
+    }
+
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    // Generic names are prefixed with `__` so they cannot clash with the type's own parameters.
+    Ok(quote! {
+        impl #impl_generics ::type_iter::TypeIter for #name #ty_generics #where_clause {
+            fn visit<'__a, __T: 'static, __B, __F>(
+                &'__a self,
+                __visitor: &mut __F,
+            ) -> ::core::ops::ControlFlow<__B>
+            where
+                __F: ::core::ops::FnMut(&'__a __T) -> ::core::ops::ControlFlow<__B>,
+            {
+                ::type_iter::visit_self::<Self, __T, __B, __F>(self, __visitor)?;
+                #body
+            }
         }
-    }).collect();
-
-    Ok(idents)
-}
-
-fn gen_impl(input: &DeriveInput, needle_types: &[Ident]) -> Result<TokenStream, syn::Error> {
-    let impl_for_self = gen_impl_for_self(&input.ident);
-    let impl_for_needle_types = needle_types.iter().map(|needle_type| {
-        gen_impl_for_type(&input.ident, &input.data, needle_type)
-    });
-
-    Ok(quote!{
-        #impl_for_self
-        #(#impl_for_needle_types)*
     })
 }
 
-fn gen_impl_for_self(type_name: &Ident) -> TokenStream {
+fn visit_struct(fields: &Fields) -> TokenStream {
+    let visits = fields.iter().enumerate().map(|(index, field)| {
+        let member = match &field.ident {
+            Some(ident) => Member::Named(ident.clone()),
+            None => Member::Unnamed(Index::from(index)),
+        };
+        visit_field(&quote!(&self.#member))
+    });
+
     quote! {
-        impl TypeIter<#type_name> for #type_name {
-            fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a #type_name> + 'a> {
-                Box::new(std::iter::once(self))
+        #(#visits)*
+        ::core::ops::ControlFlow::Continue(())
+    }
+}
+
+fn visit_enum(data: &DataEnum) -> TokenStream {
+    if data.variants.is_empty() {
+        return quote!(match *self {});
+    }
+
+    let arms = data.variants.iter().map(|variant| {
+        let variant_name = &variant.ident;
+        let bindings: Vec<_> = (0..variant.fields.len())
+            .map(|index| format_ident!("__field{}", index))
+            .collect();
+        let pattern = match &variant.fields {
+            Fields::Named(fields) => {
+                let names = fields.named.iter().map(|field| &field.ident);
+                quote!(Self::#variant_name { #(#names: #bindings),* })
             }
-        }
-    }
-}
+            Fields::Unnamed(_) => quote!(Self::#variant_name(#(#bindings),*)),
+            Fields::Unit => quote!(Self::#variant_name),
+        };
+        let visits = bindings
+            .iter()
+            .map(|binding| visit_field(&quote!(#binding)));
 
-fn gen_impl_for_type(container_type: &Ident, data: &Data, needle_type: &Ident) -> TokenStream {
-    match data {
-        Data::Struct(data_struct) => gen_impl_for_struct(container_type, data_struct, needle_type),
-        Data::Enum(data_enum) => gen_impl_for_enum(container_type, data_enum, needle_type),
-        Data::Union(_) => unimplemented!(),
-    }
-}
-
-fn gen_impl_for_struct(container_type: &Ident, data_struct: &DataStruct, needle_type: &Ident) -> TokenStream {
-    match &data_struct.fields {
-        Fields::Named(fields) => gen_impl_for_struct_named(container_type, needle_type, fields),
-        Fields::Unnamed(fields) => gen_impl_for_struct_unnamed(container_type, needle_type, fields),
-        Fields::Unit => todo!(),
-    }
-}
-
-fn gen_impl_for_struct_named(container_type: &Ident, needle_type: &Ident, fields: &FieldsNamed) -> TokenStream {
-    let field_impls = fields.named.iter().map(|field| {
-        let field_name = field.ident.as_ref().expect("Field with name");
         quote! {
-            .chain(self.#field_name.type_values::<#needle_type>())
+            #pattern => {
+                #(#visits)*
+                ::core::ops::ControlFlow::Continue(())
+            }
         }
     });
 
     quote! {
-        impl TypeIter<#needle_type> for #container_type {
-            fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a #needle_type> + 'a> {
-                let empty_iter = std::iter::empty();
-                let iter = empty_iter
-                    #(#field_impls)*;
-                Box::new(iter)
-            }
+        match self {
+            #(#arms)*
         }
     }
 }
 
-fn gen_impl_for_struct_unnamed(container_type: &Ident, needle_type: &Ident, fields: &FieldsUnnamed) -> TokenStream {
-    let field_impls = fields.unnamed.iter().enumerate().map(|(i, _)| {
-        let index = syn::Index::from(i);
-        quote! {
-            .chain(self.#index.type_values::<#needle_type>())
-        }
-    });
-
+/// `field` must evaluate to a reference that lives as long as `self`.
+fn visit_field(field: &TokenStream) -> TokenStream {
     quote! {
-        impl TypeIter<#needle_type> for #container_type {
-            fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a #needle_type> + 'a> {
-                let empty_iter = std::iter::empty();
-                let iter = empty_iter
-                    #(#field_impls)*;
-                Box::new(iter)
-            }
-        }
+        ::type_iter::TypeIter::visit::<__T, __B, __F>(#field, __visitor)?;
     }
 }
-
-fn gen_impl_for_enum(container_type: &Ident, data_enum: &DataEnum, needle_type: &Ident) -> TokenStream {
-
-    quote! {
-        impl TypeIter<#needle_type> for #container_type {
-            fn type_iter<'a>(&'a self) -> Box<dyn Iterator<Item = &'a #needle_type> + 'a> {
-                let empty_iter = std::iter::empty();
-                todo!("Implement for enum");
-                Box::new(empty_iter)
-            }
-        }
-    }
-
-    // let variant_impls = data_enum.variants.iter().map(|variant| {
-    //     let variant_name = &variant.ident;
-    //     let variant_impl = gen_impl_for_enum_variant(container_type, variant, needle_type);
-    //     quote! {
-    //         #variant_impl
-    //     }
-    // });
-
-    // quote! {
-    //     #(#variant_impls)*
-    // }
-}
-
-// fn gen_impl_for_enum_variant(container_type: &Ident, variant: &syn::Variant, needle_type: &Ident) -> TokenStream {
-//     match &variant.fields {
-//         Fields::Named(fields) => gen_impl_for_enum_variant_named(container_type, &variant.ident, needle_type, fields),
-//         Fields::Unnamed(fields) => gen_impl_for_enum_variant_unnamed(container_type, &variant.ident, needle_type, fields),
-//         Fields::Unit => gen_impl_for_enum_variant_unit(container_type, &variant.ident, needle_type),
-//     }
-// }
