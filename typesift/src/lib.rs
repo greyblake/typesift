@@ -1,5 +1,12 @@
 //! Find every value of a given type inside a nested data structure.
 //!
+//! Derive [`TypeSift`](derive@TypeSift) on your types, then ask any value for all the `T`s it
+//! contains: `order.sift::<UserId>()` returns a reference to every `UserId` inside `order`,
+//! however deeply it is nested in structs, enums, collections, maps, options or smart pointers.
+//! Nothing has to be written per field, so the search stays correct as the types grow.
+//!
+//! # Usage
+//!
 //! ```
 //! use typesift::TypeSift;
 //!
@@ -19,14 +26,202 @@
 //!     friend_ids: vec![UserId(4), UserId(43)],
 //! };
 //!
+//! // Collect references, in traversal order.
 //! assert_eq!(user.sift::<UserId>(), [&UserId(1), &UserId(4), &UserId(43)]);
 //! assert_eq!(user.sift::<String>(), ["Alice"]);
 //! ```
 //!
-//! Values are matched by comparing [`TypeId`](std::any::TypeId)s. After monomorphization those
-//! comparisons are between constants, so optimized builds reduce a traversal to plain field
-//! access, with no allocation and no dynamic dispatch. The trade-off is that every traversed type
-//! and every searched type must be `'static`.
+//! # Motivation
+//!
+//! API responses are often graphs of DTOs that refer to other resources by id. Before responding,
+//! you want to load those resources, ideally with one batched query instead of one query per
+//! reference, and serve them next to the graph. Collecting the ids usually takes a hand-written
+//! function that walks every field, and that function silently goes stale when someone adds
+//! another field holding an id.
+//!
+//! With `typesift` the ids are found by their type. Adding, say, `reviewer: Option<UserId>` to
+//! `TaskDto` below needs no change to the loading code:
+//!
+//! ```
+//! use std::collections::BTreeSet;
+//!
+//! use typesift::TypeSift;
+//!
+//! #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, TypeSift)]
+//! struct UserId(u64);
+//!
+//! #[derive(TypeSift)]
+//! struct ProjectDto {
+//!     name: String,
+//!     owner: UserId,
+//!     tasks: Vec<TaskDto>,
+//! }
+//!
+//! #[derive(TypeSift)]
+//! struct TaskDto {
+//!     title: String,
+//!     assignee: Option<UserId>,
+//!     comments: Vec<CommentDto>,
+//! }
+//!
+//! #[derive(TypeSift)]
+//! enum CommentDto {
+//!     Text {
+//!         author: UserId,
+//!         body: String,
+//!         mentions: Vec<UserId>,
+//!     },
+//!     Deleted,
+//! }
+//!
+//! /// A linked resource, served next to the graph.
+//! struct UserDto {
+//!     id: UserId,
+//!     name: String,
+//! }
+//!
+//! /// The graph, plus every user it refers to.
+//! struct Response {
+//!     data: ProjectDto,
+//!     included: Vec<UserDto>,
+//! }
+//!
+//! /// Stands in for one batched query, such as `SELECT id, name FROM users WHERE id = ANY($1)`.
+//! fn load_users(ids: &BTreeSet<UserId>) -> Vec<UserDto> {
+//!     ids.iter()
+//!         .map(|&id| UserDto {
+//!             id,
+//!             name: format!("user {}", id.0),
+//!         })
+//!         .collect()
+//! }
+//!
+//! fn respond(project: ProjectDto) -> Response {
+//!     // Every user the graph refers to, wherever it appears, without duplicates.
+//!     let user_ids: BTreeSet<UserId> = project.sift::<UserId>().into_iter().copied().collect();
+//!     Response {
+//!         included: load_users(&user_ids),
+//!         data: project,
+//!     }
+//! }
+//!
+//! let project = ProjectDto {
+//!     name: "typesift".to_string(),
+//!     owner: UserId(1),
+//!     tasks: vec![
+//!         TaskDto {
+//!             title: "Write docs".to_string(),
+//!             assignee: Some(UserId(2)),
+//!             comments: vec![
+//!                 CommentDto::Text {
+//!                     author: UserId(3),
+//!                     body: "Looks good, @owner?".to_string(),
+//!                     mentions: vec![UserId(1)],
+//!                 },
+//!                 CommentDto::Deleted,
+//!             ],
+//!         },
+//!         TaskDto {
+//!             title: "Release".to_string(),
+//!             assignee: None,
+//!             comments: Vec::new(),
+//!         },
+//!     ],
+//! };
+//!
+//! let response = respond(project);
+//! let included: Vec<u64> = response.included.iter().map(|user| user.id.0).collect();
+//! assert_eq!(included, [1, 2, 3]);
+//! ```
+//!
+//! The same approach works for any value that is identified by its type: every `Url` to prefetch,
+//! every `Email` to validate, or checking that no `Secret` ends up in a log line.
+//!
+//! # Iterating and stopping early
+//!
+//! [`sift`](TypeSift::sift) collects references into a `Vec`. [`sift_each`](TypeSift::sift_each)
+//! hands each value to a closure without allocating, and [`visit`](TypeSift::visit) lets the
+//! closure stop the traversal early. With `user` from the [Usage](#usage) example:
+//!
+//! ```
+//! use std::ops::ControlFlow;
+//!
+//! # use typesift::TypeSift;
+//! #
+//! # #[derive(Debug, PartialEq, TypeSift)]
+//! # struct UserId(i32);
+//! #
+//! # #[derive(TypeSift)]
+//! # struct User {
+//! #     id: UserId,
+//! #     name: String,
+//! #     friend_ids: Vec<UserId>,
+//! # }
+//! #
+//! # let user = User {
+//! #     id: UserId(1),
+//! #     name: "Alice".to_string(),
+//! #     friend_ids: vec![UserId(4), UserId(43)],
+//! # };
+//! #
+//! // Handle each value without allocating.
+//! let mut total = 0;
+//! user.sift_each::<UserId>(|id| total += id.0);
+//! assert_eq!(total, 48);
+//!
+//! // Stop at the first match.
+//! let first_friend = user.visit::<UserId, &UserId, _>(&mut |id| {
+//!     if id.0 == 1 {
+//!         ControlFlow::Continue(())
+//!     } else {
+//!         ControlFlow::Break(id)
+//!     }
+//! });
+//! assert_eq!(first_friend, ControlFlow::Break(&UserId(4)));
+//! ```
+//!
+//! # Supported types
+//!
+//! - Structs and enums with `#[derive(TypeSift)]`, including generic ones. Every type parameter
+//!   must implement `TypeSift` itself.
+//! - Integers, floats, `bool`, `char`, `()`, `String`, `PathBuf`, `Duration` and `NonZero`
+//!   integers. These are matched as a whole; `String` does not expose its `char`s.
+//! - `Vec`, `VecDeque`, `LinkedList`, `BTreeSet`, `BinaryHeap`, `HashSet`, arrays and slices.
+//! - `BTreeMap` and `HashMap`, visiting each key before its value.
+//! - `Option`, `Result`, `Box`, `Rc`, `Arc`, `&'static T`, `Reverse` and tuples of up to 12
+//!   elements.
+//! - `Cow<'static, T>`, searched as the `T` it dereferences to, whether borrowed or owned.
+//! - `PhantomData<T>`, which holds no `T` and only matches itself.
+//!
+//! Other types can implement the trait by hand, as shown on [`TypeSift`](trait@TypeSift).
+//!
+//! # Traversal order
+//!
+//! The traversal is pre-order: a value is offered before the values inside it, fields are visited
+//! in declaration order and collections in their iteration order. So a value found inside a field
+//! comes before any later field of the same struct. The order inside `HashMap`, `HashSet` and
+//! `BinaryHeap` is unspecified.
+//!
+//! Every occurrence is reported. Equal values are not merged, the same `Rc` target reached twice
+//! is reported twice, and when `T` is recursive (a tree node, say) both a node and the nodes
+//! inside it are found. The searched value itself is included when it has type `T`.
+//!
+//! # Limitations
+//!
+//! - Every traversed type and every searched type must be `'static`, so the derive rejects types
+//!   with lifetime parameters. `&'static T` fields are fine.
+//! - `Cell`, `RefCell`, `Mutex` and other interior-mutability types are not supported, because
+//!   they cannot hand out references to their contents for as long as the outer value is borrowed.
+//! - The traversal recurses once per nesting level, so very deep values (tens of thousands of
+//!   levels in a debug build) can overflow the stack.
+//! - The derive cannot be used on a type with a type parameter named `__T`, `__B` or `__F`.
+//!
+//! # How it works
+//!
+//! Values are matched by comparing [`TypeId`](std::any::TypeId)s. After monomorphization both
+//! sides of every comparison are constants, which the optimizer can fold away.
+//! [`visit`](TypeSift::visit) and [`sift_each`](TypeSift::sift_each) allocate nothing and
+//! use no dynamic dispatch; only [`sift`](TypeSift::sift) allocates, for the `Vec` it returns.
 
 use std::any::Any;
 use std::borrow::Cow;
