@@ -29,9 +29,17 @@
 //! and every searched type must be `'static`.
 
 use std::any::Any;
+use std::borrow::Cow;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedList, VecDeque};
 use std::convert::Infallible;
+use std::marker::PhantomData;
+use std::num::NonZero;
 use std::ops::ControlFlow;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Duration;
 
 pub use typesift_macros::TypeSift;
 
@@ -138,7 +146,53 @@ impl_type_sift_for_leaf!(
     char,
     (),
     String,
+    PathBuf,
+    Duration,
+    NonZero<i8>,
+    NonZero<i16>,
+    NonZero<i32>,
+    NonZero<i64>,
+    NonZero<i128>,
+    NonZero<isize>,
+    NonZero<u8>,
+    NonZero<u16>,
+    NonZero<u32>,
+    NonZero<u64>,
+    NonZero<u128>,
+    NonZero<usize>,
 );
+
+/// A `PhantomData` holds no value, so only the marker itself can be found.
+impl<X: ?Sized + 'static> TypeSift for PhantomData<X> {
+    fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
+    where
+        F: FnMut(&'a T) -> ControlFlow<B>,
+    {
+        visit_self::<Self, T, B, F>(self, visitor)
+    }
+}
+
+// `str` and slices are unsized, and `T` is always sized, so they are never offered to the visitor
+// themselves. They exist so that `&'static str`, `Box<str>`, `Rc<[X]>` and the like work.
+
+impl TypeSift for str {
+    fn visit<'a, T: 'static, B, F>(&'a self, _visitor: &mut F) -> ControlFlow<B>
+    where
+        F: FnMut(&'a T) -> ControlFlow<B>,
+    {
+        ControlFlow::Continue(())
+    }
+}
+
+impl<X: TypeSift> TypeSift for [X] {
+    fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
+    where
+        F: FnMut(&'a T) -> ControlFlow<B>,
+    {
+        self.iter()
+            .try_for_each(|item| item.visit::<T, B, F>(visitor))
+    }
+}
 
 macro_rules! impl_type_sift_for_collection {
     ($($collection:ident<X $(, $param:ident)*>),* $(,)?) => {$(
@@ -193,13 +247,41 @@ impl<X: TypeSift, const N: usize> TypeSift for [X; N] {
     }
 }
 
-impl<X: TypeSift> TypeSift for Box<X> {
+macro_rules! impl_type_sift_for_pointer {
+    ($($pointer:ty),* $(,)?) => {$(
+        impl<X: ?Sized + TypeSift> TypeSift for $pointer {
+            fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
+            where
+                F: FnMut(&'a T) -> ControlFlow<B>,
+            {
+                visit_self::<Self, T, B, F>(self, visitor)?;
+                (**self).visit::<T, B, F>(visitor)
+            }
+        }
+    )*};
+}
+
+impl_type_sift_for_pointer!(&'static X, Box<X>, Rc<X>, Arc<X>);
+
+/// Visited through `Deref`: both variants are searched as `X`, so `Cow::<str>::Owned` yields no
+/// `String`.
+impl<X: ?Sized + ToOwned + TypeSift> TypeSift for Cow<'static, X> {
     fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
     {
         visit_self::<Self, T, B, F>(self, visitor)?;
         (**self).visit::<T, B, F>(visitor)
+    }
+}
+
+impl<X: TypeSift> TypeSift for Reverse<X> {
+    fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
+    where
+        F: FnMut(&'a T) -> ControlFlow<B>,
+    {
+        visit_self::<Self, T, B, F>(self, visitor)?;
+        self.0.visit::<T, B, F>(visitor)
     }
 }
 
@@ -229,4 +311,27 @@ impl<X: TypeSift, E: TypeSift> TypeSift for Result<X, E> {
     }
 }
 
-// TODO: Support tuples!
+/// Implements `TypeSift` for the tuple of all given elements, then recurses on all but the first.
+macro_rules! impl_type_sift_for_tuples {
+    () => {};
+    ($param:ident $binding:ident $(, $rest_param:ident $rest_binding:ident)*) => {
+        impl<$param: TypeSift $(, $rest_param: TypeSift)*> TypeSift for ($param, $($rest_param,)*) {
+            fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
+            where
+                F: FnMut(&'a T) -> ControlFlow<B>,
+            {
+                visit_self::<Self, T, B, F>(self, visitor)?;
+                let ($binding, $($rest_binding,)*) = self;
+                $binding.visit::<T, B, F>(visitor)?;
+                $($rest_binding.visit::<T, B, F>(visitor)?;)*
+                ControlFlow::Continue(())
+            }
+        }
+
+        impl_type_sift_for_tuples!($($rest_param $rest_binding),*);
+    };
+}
+
+impl_type_sift_for_tuples!(
+    X0 x0, X1 x1, X2 x2, X3 x3, X4 x4, X5 x5, X6 x6, X7 x7, X8 x8, X9 x9, X10 x10, X11 x11
+);

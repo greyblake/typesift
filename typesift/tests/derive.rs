@@ -1,4 +1,12 @@
+use std::borrow::Cow;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, HashMap};
+use std::marker::PhantomData;
+use std::num::NonZero;
+use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::Arc;
+use std::time::Duration;
 
 use typesift::TypeSift;
 
@@ -49,6 +57,21 @@ struct List {
 
 #[derive(TypeSift)]
 enum Never {}
+
+// Only `PhantomData` mentions the parameter.
+#[derive(TypeSift)]
+struct Typed<M> {
+    raw: u64,
+    marker: PhantomData<M>,
+}
+
+#[derive(TypeSift)]
+struct Borrowed {
+    name: &'static str,
+    label: Cow<'static, str>,
+    ids: &'static [Id],
+    pair: (Id, String),
+}
 
 fn assert_type_sift<C: TypeSift>() {}
 
@@ -149,4 +172,70 @@ fn std_containers() {
     let results: [Result<Id, String>; 2] = [Ok(Id(1)), Err("failed".to_string())];
     assert_eq!(results.sift::<Id>(), [&Id(1)]);
     assert_eq!(results.sift::<String>(), ["failed"]);
+}
+
+#[test]
+fn tuples() {
+    let pair = (Id(1), "a".to_string());
+    assert_eq!(pair.sift::<Id>(), [&Id(1)]);
+    assert_eq!(pair.sift::<(Id, String)>(), [&pair]);
+
+    let nested = ((Id(1),), [Id(2)], (Id(3), (), Some(Id(4))));
+    assert_eq!(nested.sift::<Id>(), [&Id(1), &Id(2), &Id(3), &Id(4)]);
+
+    let widest = (0u8, 1u8, 2u8, 3u8, 4u8, 5u8, 6u8, 7u8, 8u8, 9u8, 10u8, 11u8);
+    let values: Vec<u8> = widest.sift::<u8>().into_iter().copied().collect();
+    assert_eq!(values, (0..12).collect::<Vec<u8>>());
+}
+
+#[test]
+fn references_and_pointers() {
+    let borrowed = Borrowed {
+        name: "a",
+        label: Cow::Borrowed("b"),
+        ids: &[Id(2), Id(3)],
+        pair: (Id(1), "c".to_string()),
+    };
+    assert_eq!(borrowed.sift::<&'static str>(), [&"a"]);
+    assert_eq!(borrowed.sift::<Cow<'static, str>>(), [&Cow::Borrowed("b")]);
+    assert_eq!(borrowed.sift::<Id>(), [&Id(2), &Id(3), &Id(1)]);
+    assert_eq!(borrowed.sift::<String>(), ["c"]);
+
+    // `Cow` is searched through `Deref`, so the owned `String` is not found.
+    let owned: Cow<'static, str> = Cow::Owned("d".to_string());
+    assert!(owned.sift::<String>().is_empty());
+
+    let shared = (
+        Rc::new(Id(1)),
+        Arc::new(vec![Id(2)]),
+        Box::<[Id]>::from([Id(3)]),
+        Rc::<str>::from("e"),
+    );
+    assert_eq!(shared.sift::<Id>(), [&Id(1), &Id(2), &Id(3)]);
+    assert_eq!(shared.sift::<Rc<Id>>(), [&Rc::new(Id(1))]);
+    assert_eq!(shared.sift::<Rc<str>>(), [&Rc::<str>::from("e")]);
+}
+
+#[test]
+fn leaves_and_wrappers() {
+    let typed = Typed::<Id> {
+        raw: 7,
+        marker: PhantomData,
+    };
+    assert_eq!(typed.sift::<u64>(), [&7]);
+    assert_eq!(typed.sift::<PhantomData<Id>>(), [&PhantomData]);
+    assert!(typed.sift::<Id>().is_empty());
+
+    let leaves = (
+        Duration::from_secs(1),
+        PathBuf::from("/tmp"),
+        NonZero::<u32>::MIN,
+        Reverse(Id(1)),
+    );
+    assert_eq!(leaves.sift::<Duration>(), [&Duration::from_secs(1)]);
+    assert_eq!(leaves.sift::<PathBuf>(), [&PathBuf::from("/tmp")]);
+    assert_eq!(leaves.sift::<NonZero<u32>>(), [&NonZero::<u32>::MIN]);
+    // The only `u32` is inside `Id`: a `NonZero<u32>` does not expose its inner `u32`.
+    assert_eq!(leaves.sift::<u32>(), [&1]);
+    assert_eq!(leaves.sift::<Id>(), [&Id(1)]);
 }
