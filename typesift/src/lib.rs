@@ -1,12 +1,12 @@
 //! Find every value of a given type inside a nested data structure.
 //!
 //! ```
-//! use type_iter::TypeIter;
+//! use typesift::TypeSift;
 //!
-//! #[derive(Debug, PartialEq, TypeIter)]
+//! #[derive(Debug, PartialEq, TypeSift)]
 //! struct UserId(i32);
 //!
-//! #[derive(TypeIter)]
+//! #[derive(TypeSift)]
 //! struct User {
 //!     id: UserId,
 //!     name: String,
@@ -19,8 +19,8 @@
 //!     friend_ids: vec![UserId(4), UserId(43)],
 //! };
 //!
-//! assert_eq!(user.type_values::<UserId>(), [&UserId(1), &UserId(4), &UserId(43)]);
-//! assert_eq!(user.type_values::<String>(), ["Alice"]);
+//! assert_eq!(user.sift::<UserId>(), [&UserId(1), &UserId(4), &UserId(43)]);
+//! assert_eq!(user.sift::<String>(), ["Alice"]);
 //! ```
 //!
 //! Values are matched by comparing [`TypeId`](std::any::TypeId)s. After monomorphization those
@@ -33,28 +33,28 @@ use std::collections::{BTreeMap, BTreeSet, BinaryHeap, HashMap, HashSet, LinkedL
 use std::convert::Infallible;
 use std::ops::ControlFlow;
 
-pub use type_iter_macros::TypeIter;
+pub use typesift_macros::TypeSift;
 
 /// A type that can be searched for nested values of any `'static` type.
 ///
-/// Only [`visit`](TypeIter::visit) needs to be implemented. [`type_values`](TypeIter::type_values)
-/// and [`for_each_value`](TypeIter::for_each_value) are built on top of it and should not be
+/// Only [`visit`](TypeSift::visit) needs to be implemented. [`sift`](TypeSift::sift)
+/// and [`sift_each`](TypeSift::sift_each) are built on top of it and should not be
 /// overridden.
 ///
-/// Usually implemented with `#[derive(TypeIter)]`. A manual implementation offers `self` to the
+/// Usually implemented with `#[derive(TypeSift)]`. A manual implementation offers `self` to the
 /// visitor with [`visit_self`], then visits every field, propagating [`ControlFlow::Break`] with `?`:
 ///
 /// ```
 /// use std::ops::ControlFlow;
 ///
-/// use type_iter::{TypeIter, visit_self};
+/// use typesift::{TypeSift, visit_self};
 ///
 /// struct Point {
 ///     x: i32,
 ///     y: i32,
 /// }
 ///
-/// impl TypeIter for Point {
+/// impl TypeSift for Point {
 ///     fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
 ///     where
 ///         F: FnMut(&'a T) -> ControlFlow<B>,
@@ -65,9 +65,9 @@ pub use type_iter_macros::TypeIter;
 ///     }
 /// }
 ///
-/// assert_eq!(Point { x: 1, y: 2 }.type_values::<i32>(), [&1, &2]);
+/// assert_eq!(Point { x: 1, y: 2 }.sift::<i32>(), [&1, &2]);
 /// ```
-pub trait TypeIter: 'static {
+pub trait TypeSift: 'static {
     /// Calls `visitor` with every value of type `T` reachable from `self`, `self` included, in
     /// pre-order: a value comes before the values nested inside it.
     ///
@@ -78,14 +78,14 @@ pub trait TypeIter: 'static {
         F: FnMut(&'a T) -> ControlFlow<B>;
 
     /// Collects references to every nested value of type `T`.
-    fn type_values<T: 'static>(&self) -> Vec<&T> {
+    fn sift<T: 'static>(&self) -> Vec<&T> {
         let mut values = Vec::new();
-        self.for_each_value::<T>(|value| values.push(value));
+        self.sift_each::<T>(|value| values.push(value));
         values
     }
 
     /// Calls `f` with every nested value of type `T`, without allocating.
-    fn for_each_value<'a, T: 'static>(&'a self, mut f: impl FnMut(&'a T)) {
+    fn sift_each<'a, T: 'static>(&'a self, mut f: impl FnMut(&'a T)) {
         let ControlFlow::Continue(()) = self.visit::<T, Infallible, _>(&mut |value: &'a T| {
             f(value);
             ControlFlow::Continue(())
@@ -95,7 +95,7 @@ pub trait TypeIter: 'static {
 
 /// Offers `value` itself to `visitor` if its type is `T`.
 ///
-/// This is the first step of every [`TypeIter::visit`] implementation.
+/// This is the first step of every [`TypeSift::visit`] implementation.
 pub fn visit_self<'a, S: 'static, T: 'static, B, F>(value: &'a S, visitor: &mut F) -> ControlFlow<B>
 where
     F: FnMut(&'a T) -> ControlFlow<B>,
@@ -106,9 +106,9 @@ where
     }
 }
 
-macro_rules! impl_type_iter_for_leaf {
+macro_rules! impl_type_sift_for_leaf {
     ($($leaf:ty),* $(,)?) => {$(
-        impl TypeIter for $leaf {
+        impl TypeSift for $leaf {
             fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
@@ -119,7 +119,7 @@ macro_rules! impl_type_iter_for_leaf {
     )*};
 }
 
-impl_type_iter_for_leaf!(
+impl_type_sift_for_leaf!(
     i8,
     i16,
     i32,
@@ -140,9 +140,9 @@ impl_type_iter_for_leaf!(
     String,
 );
 
-macro_rules! impl_type_iter_for_collection {
+macro_rules! impl_type_sift_for_collection {
     ($($collection:ident<X $(, $param:ident)*>),* $(,)?) => {$(
-        impl<X: TypeIter $(, $param: 'static)*> TypeIter for $collection<X $(, $param)*> {
+        impl<X: TypeSift $(, $param: 'static)*> TypeSift for $collection<X $(, $param)*> {
             fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
@@ -154,7 +154,7 @@ macro_rules! impl_type_iter_for_collection {
     )*};
 }
 
-impl_type_iter_for_collection!(
+impl_type_sift_for_collection!(
     Vec<X>,
     VecDeque<X>,
     LinkedList<X>,
@@ -163,9 +163,9 @@ impl_type_iter_for_collection!(
     HashSet<X, S>,
 );
 
-macro_rules! impl_type_iter_for_map {
+macro_rules! impl_type_sift_for_map {
     ($($map:ident<K, V $(, $param:ident)*>),* $(,)?) => {$(
-        impl<K: TypeIter, V: TypeIter $(, $param: 'static)*> TypeIter for $map<K, V $(, $param)*> {
+        impl<K: TypeSift, V: TypeSift $(, $param: 'static)*> TypeSift for $map<K, V $(, $param)*> {
             fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
@@ -180,9 +180,9 @@ macro_rules! impl_type_iter_for_map {
     )*};
 }
 
-impl_type_iter_for_map!(BTreeMap<K, V>, HashMap<K, V, S>);
+impl_type_sift_for_map!(BTreeMap<K, V>, HashMap<K, V, S>);
 
-impl<X: TypeIter, const N: usize> TypeIter for [X; N] {
+impl<X: TypeSift, const N: usize> TypeSift for [X; N] {
     fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
@@ -193,7 +193,7 @@ impl<X: TypeIter, const N: usize> TypeIter for [X; N] {
     }
 }
 
-impl<X: TypeIter> TypeIter for Box<X> {
+impl<X: TypeSift> TypeSift for Box<X> {
     fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
@@ -203,7 +203,7 @@ impl<X: TypeIter> TypeIter for Box<X> {
     }
 }
 
-impl<X: TypeIter> TypeIter for Option<X> {
+impl<X: TypeSift> TypeSift for Option<X> {
     fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
@@ -216,7 +216,7 @@ impl<X: TypeIter> TypeIter for Option<X> {
     }
 }
 
-impl<X: TypeIter, E: TypeIter> TypeIter for Result<X, E> {
+impl<X: TypeSift, E: TypeSift> TypeSift for Result<X, E> {
     fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
     where
         F: FnMut(&'a T) -> ControlFlow<B>,

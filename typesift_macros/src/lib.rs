@@ -4,13 +4,13 @@ use syn::{
     Data, DataEnum, DeriveInput, Error, Fields, Index, Member, parse_macro_input, parse_quote,
 };
 
-/// Derives `type_iter::TypeIter`: the value itself is offered first, then each field is visited in
+/// Derives `typesift::TypeSift`: the value itself is offered first, then each field is visited in
 /// declaration order.
 ///
-/// Every type parameter gets a `TypeIter` bound. Types with lifetime parameters are rejected
-/// because `TypeIter` requires `'static` types, and unions because the active field is unknown.
-#[proc_macro_derive(TypeIter)]
-pub fn derive_type_iter(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+/// Every type parameter gets a `TypeSift` bound. Types with lifetime parameters are rejected
+/// because `TypeSift` requires `'static` types, and unions because the active field is unknown.
+#[proc_macro_derive(TypeSift)]
+pub fn derive_type_sift(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     expand(input)
         .unwrap_or_else(Error::into_compile_error)
@@ -21,7 +21,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
     if let Some(lifetime) = input.generics.lifetimes().next() {
         return Err(Error::new_spanned(
             lifetime,
-            "`TypeIter` requires `'static` types, so it cannot be derived for types with lifetime parameters",
+            "`TypeSift` requires `'static` types, so it cannot be derived for types with lifetime parameters",
         ));
     }
 
@@ -31,13 +31,13 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
         Data::Union(data) => {
             return Err(Error::new_spanned(
                 data.union_token,
-                "`TypeIter` cannot be derived for unions",
+                "`TypeSift` cannot be derived for unions",
             ));
         }
     };
 
     for param in input.generics.type_params_mut() {
-        param.bounds.push(parse_quote!(::type_iter::TypeIter));
+        param.bounds.push(parse_quote!(::typesift::TypeSift));
     }
 
     let name = &input.ident;
@@ -45,7 +45,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
 
     // Generic names are prefixed with `__` so they cannot clash with the type's own parameters.
     Ok(quote! {
-        impl #impl_generics ::type_iter::TypeIter for #name #ty_generics #where_clause {
+        impl #impl_generics ::typesift::TypeSift for #name #ty_generics #where_clause {
             fn visit<'__a, __T: 'static, __B, __F>(
                 &'__a self,
                 __visitor: &mut __F,
@@ -53,7 +53,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
             where
                 __F: ::core::ops::FnMut(&'__a __T) -> ::core::ops::ControlFlow<__B>,
             {
-                ::type_iter::visit_self::<Self, __T, __B, __F>(self, __visitor)?;
+                ::typesift::visit_self::<Self, __T, __B, __F>(self, __visitor)?;
                 #body
             }
         }
@@ -115,6 +115,6 @@ fn visit_enum(data: &DataEnum) -> TokenStream {
 /// `field` must evaluate to a reference that lives as long as `self`.
 fn visit_field(field: &TokenStream) -> TokenStream {
     quote! {
-        ::type_iter::TypeIter::visit::<__T, __B, __F>(#field, __visitor)?;
+        ::typesift::TypeSift::visit::<__T, __B, __F>(#field, __visitor)?;
     }
 }
