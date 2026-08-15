@@ -6,4 +6,5 @@ members = [
     "typesift",
     "typesift_macros",
     "playground",
+    "test_suite",
 ]
