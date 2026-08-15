@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use type_iter::{TypeIter, TypeValues};
+use type_iter::TypeIter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TypeIter)]
 struct UserId(i32);
@@ -107,7 +107,5 @@ fn main() {
     user_ids.sort_unstable();
     assert_eq!(user_ids, [1, 2, 3, 4, 5, 43]);
 
-    let big_id = graph.find_value::<UserId>(|id| id.0 > 40);
-    println!("first user id above 40: {big_id:?}");
     println!("task ids: {:?}", graph.type_values::<TaskId>());
 }

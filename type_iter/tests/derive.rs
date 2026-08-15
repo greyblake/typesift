@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 
-use type_iter::{TypeIter, TypeValues};
+use type_iter::TypeIter;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, TypeIter)]
 struct Id(u32);
@@ -152,19 +152,4 @@ fn std_containers() {
     let results: [Result<Id, String>; 2] = [Ok(Id(1)), Err("failed".to_string())];
     assert_eq!(results.type_values::<Id>(), [&Id(1)]);
     assert_eq!(results.type_values::<String>(), ["failed"]);
-}
-
-#[test]
-fn find_value_stops_at_first_match() {
-    let ids: Vec<Id> = (0..10).map(Id).collect();
-    let mut visited = 0;
-
-    let found = ids.find_value::<Id>(|id| {
-        visited += 1;
-        id.0 == 3
-    });
-
-    assert_eq!(found, Some(&Id(3)));
-    assert_eq!(visited, 4);
-    assert_eq!(ids.find_value::<Id>(|id| id.0 == 42), None);
 }

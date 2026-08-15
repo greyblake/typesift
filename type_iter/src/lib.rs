@@ -1,7 +1,7 @@
 //! Find every value of a given type inside a nested data structure.
 //!
 //! ```
-//! use type_iter::{TypeIter, TypeValues};
+//! use type_iter::TypeIter;
 //!
 //! #[derive(Debug, PartialEq, TypeIter)]
 //! struct UserId(i32);
@@ -21,7 +21,6 @@
 //!
 //! assert_eq!(user.type_values::<UserId>(), [&UserId(1), &UserId(4), &UserId(43)]);
 //! assert_eq!(user.type_values::<String>(), ["Alice"]);
-//! assert_eq!(user.find_value::<UserId>(|id| id.0 > 1), Some(&UserId(4)));
 //! ```
 //!
 //! Values are matched by comparing [`TypeId`](std::any::TypeId)s. After monomorphization those
@@ -38,13 +37,17 @@ pub use type_iter_macros::TypeIter;
 
 /// A type that can be searched for nested values of any `'static` type.
 ///
+/// Only [`visit`](TypeIter::visit) needs to be implemented. [`type_values`](TypeIter::type_values)
+/// and [`for_each_value`](TypeIter::for_each_value) are built on top of it and should not be
+/// overridden.
+///
 /// Usually implemented with `#[derive(TypeIter)]`. A manual implementation offers `self` to the
 /// visitor with [`visit_self`], then visits every field, propagating [`ControlFlow::Break`] with `?`:
 ///
 /// ```
 /// use std::ops::ControlFlow;
 ///
-/// use type_iter::{TypeIter, TypeValues, visit_self};
+/// use type_iter::{TypeIter, visit_self};
 ///
 /// struct Point {
 ///     x: i32,
@@ -73,6 +76,21 @@ pub trait TypeIter: 'static {
     fn visit<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
     where
         F: FnMut(&'a T) -> ControlFlow<B>;
+
+    /// Collects references to every nested value of type `T`.
+    fn type_values<T: 'static>(&self) -> Vec<&T> {
+        let mut values = Vec::new();
+        self.for_each_value::<T>(|value| values.push(value));
+        values
+    }
+
+    /// Calls `f` with every nested value of type `T`, without allocating.
+    fn for_each_value<'a, T: 'static>(&'a self, mut f: impl FnMut(&'a T)) {
+        let ControlFlow::Continue(()) = self.visit::<T, Infallible, _>(&mut |value: &'a T| {
+            f(value);
+            ControlFlow::Continue(())
+        });
+    }
 }
 
 /// Offers `value` itself to `visitor` if its type is `T`.
@@ -87,42 +105,6 @@ where
         None => ControlFlow::Continue(()),
     }
 }
-
-/// Convenience methods for searching any [`TypeIter`] value.
-pub trait TypeValues: TypeIter {
-    /// Calls `f` with every nested value of type `T`.
-    fn for_each_value<'a, T: 'static>(&'a self, mut f: impl FnMut(&'a T)) {
-        let ControlFlow::Continue(()) = self.visit::<T, Infallible, _>(&mut |value: &'a T| {
-            f(value);
-            ControlFlow::Continue(())
-        });
-    }
-
-    /// Returns the first nested value of type `T` that satisfies `predicate`, without visiting
-    /// the rest.
-    fn find_value<'a, T: 'static>(
-        &'a self,
-        mut predicate: impl FnMut(&T) -> bool,
-    ) -> Option<&'a T> {
-        self.visit::<T, &'a T, _>(&mut |value: &'a T| {
-            if predicate(value) {
-                ControlFlow::Break(value)
-            } else {
-                ControlFlow::Continue(())
-            }
-        })
-        .break_value()
-    }
-
-    /// Collects references to every nested value of type `T`.
-    fn type_values<T: 'static>(&self) -> Vec<&T> {
-        let mut values = Vec::new();
-        self.for_each_value::<T>(|value| values.push(value));
-        values
-    }
-}
-
-impl<C: TypeIter> TypeValues for C {}
 
 macro_rules! impl_type_iter_for_leaf {
     ($($leaf:ty),* $(,)?) => {$(
