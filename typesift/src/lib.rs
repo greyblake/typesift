@@ -313,6 +313,7 @@
 //! | `chrono` | `DateTime<Tz>`, `NaiveDate`, `NaiveDateTime`, `NaiveTime`, `TimeDelta` | Leaf |
 //! | `indexmap` | `IndexMap`, `IndexSet` | Walked, in insertion order |
 //! | `rust_decimal` | `Decimal` | Leaf |
+//! | `smallvec` | `SmallVec` | Walked, like a `Vec` |
 //! | `time` | `OffsetDateTime`, `PrimitiveDateTime`, `Date`, `Time`, `UtcOffset`, `Duration` | Leaf |
 //! | `uuid` | `uuid::Uuid` | Leaf |
 //!

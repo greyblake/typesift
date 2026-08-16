@@ -3,5 +3,6 @@
 mod chrono;
 mod indexmap;
 mod rust_decimal;
+mod smallvec;
 mod time;
 mod uuid;

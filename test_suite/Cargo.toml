@@ -9,6 +9,7 @@ typesift = { path = "../typesift", features = [
     "chrono",
     "indexmap",
     "rust_decimal",
+    "smallvec",
     "time",
     "uuid",
 ] }
@@ -16,5 +17,6 @@ typesift = { path = "../typesift", features = [
 chrono = "0.4"
 indexmap = "2"
 rust_decimal = "1"
+smallvec = "1"
 time = "0.3"
 uuid = "1"
