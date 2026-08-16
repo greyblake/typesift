@@ -7,10 +7,12 @@ edition = "2024"
 
 [dependencies]
 typesift_macros = { version = "0.1.0", path = "../typesift_macros" }
+chrono = { version = "0.4", optional = true, default-features = false }
 uuid = { version = "1", optional = true, default-features = false }
 
 # One feature per crate, matching the modules in `src/features`.
 [features]
+chrono = ["dep:chrono"]
 uuid = ["dep:uuid"]
 
 [package.metadata.docs.rs]
