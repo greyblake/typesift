@@ -1,0 +1,9 @@
+//! Impls for types from other crates, one module per crate, each behind a cargo feature of the
+//! same name.
+//!
+//! Every module documents whether its types are leaves, found as themselves and never searched, or
+//! walked like a container. That choice is part of the API: changing it later changes what a search
+//! returns.
+
+#[cfg(feature = "uuid")]
+mod uuid;

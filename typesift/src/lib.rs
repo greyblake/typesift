@@ -300,6 +300,18 @@
 //!
 //! Other types can implement the trait by hand, as shown on [`TypeSift`](trait@TypeSift).
 //!
+//! # Cargo features
+//!
+//! Types from other crates are supported behind one feature each, all off by default:
+//!
+//! ```toml
+//! typesift = { version = "0.1", features = ["uuid"] }
+//! ```
+//!
+//! | Feature | Types | Treatment |
+//! |---|---|---|
+//! | `uuid` | `uuid::Uuid` | Leaf |
+//!
 //! # Traversal order
 //!
 //! The traversal is pre-order: a value is offered before the values inside it, fields are visited
@@ -345,6 +357,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 pub use typesift_macros::TypeSift;
+
+mod features;
 
 /// A type that can be searched for nested values of any `'static` type.
 ///
@@ -498,6 +512,11 @@ macro_rules! impl_type_sift_for_leaf {
         }
     )*};
 }
+
+// So that the `features` modules can use it, wherever they sit in the file. Nothing uses it when
+// every feature is off.
+#[allow(unused_imports)]
+pub(crate) use impl_type_sift_for_leaf;
 
 impl_type_sift_for_leaf!(
     i8,

@@ -18,6 +18,8 @@ mod control_flow;
 #[cfg(test)]
 mod derive;
 #[cfg(test)]
+mod features;
+#[cfg(test)]
 mod lifetimes;
 #[cfg(test)]
 mod oracle;
