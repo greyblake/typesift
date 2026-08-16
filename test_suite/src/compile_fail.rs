@@ -324,3 +324,53 @@
 //!
 //! assert_eq!(Invoice { id: Uuid(7) }.sift::<Uuid>(), [&Uuid(7)]);
 //! ```
+//!
+//! # UI15: `with` follows the same argument rules
+//!
+//! ```compile_fail
+//! use std::ops::ControlFlow;
+//!
+//! use typesift::Sifter;
+//!
+//! struct Headers;
+//!
+//! fn visit_headers<'a, S: Sifter<'a>>(_: &'a Headers, _: &mut S) -> ControlFlow<S::Break> {
+//!     ControlFlow::Continue(())
+//! }
+//!
+//! #[derive(typesift::TypeSift)]
+//! struct Request {
+//!     #[typesift(with = visit_headers, skip)]
+//!     headers: Headers,
+//! }
+//! ```
+//!
+//! A closure cannot be used, because the function has to be generic over the sifter:
+//!
+//! ```compile_fail
+//! struct Headers;
+//!
+//! #[derive(typesift::TypeSift)]
+//! struct Request {
+//!     #[typesift(with = |headers, sift| sift.offer(headers))]
+//!     headers: Headers,
+//! }
+//! ```
+//!
+//! ```
+//! use std::ops::ControlFlow;
+//!
+//! use typesift::Sifter;
+//!
+//! struct Headers;
+//!
+//! fn visit_headers<'a, S: Sifter<'a>>(_: &'a Headers, _: &mut S) -> ControlFlow<S::Break> {
+//!     ControlFlow::Continue(())
+//! }
+//!
+//! #[derive(typesift::TypeSift)]
+//! struct Request {
+//!     #[typesift(with = visit_headers)]
+//!     headers: Headers,
+//! }
+//! ```

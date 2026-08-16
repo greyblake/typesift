@@ -11,10 +11,11 @@ use typesift::TypeSift;
 use crate::fixtures::ids::{Marker, NodeId, TaskId, TeamId, UserId};
 use crate::fixtures::org::Assignee;
 use crate::fixtures::shapes::{
-    Discriminants, EmptyBraced, EmptyTuple, Foreign, GenericWithSkipped, HygieneNames, MutualA,
-    MutualB, NamedStruct, Nested, Never, Pair, RawIdents, SelfRef, SingleVariant, SkipAndLeaf,
-    TupleStruct, TupleWithLeaf, TupleWithSkipped, Typed, UnitStruct, Variants, VariantsWithLeaf,
-    VariantsWithSkipped, WithCfg, WithDefault, WithLeaf, WithSkipped, Wrapper, no_import, shadow,
+    Discriminants, EmptyBraced, EmptyTuple, Foreign, ForeignPair, GenericWithSkipped, HygieneNames,
+    MutualA, MutualB, NamedStruct, Nested, Never, Pair, RawIdents, SelfRef, SingleVariant,
+    SkipAndLeaf, TupleStruct, TupleWithLeaf, TupleWithSkipped, Typed, UnitStruct, Variants,
+    VariantsWithCustom, VariantsWithLeaf, VariantsWithSkipped, WithCfg, WithCustom, WithDefault,
+    WithLeaf, WithSkipped, Wrapper, no_import, shadow,
 };
 use crate::fixtures::trees::{List, Tree, list, numbered_tree};
 use crate::helpers::{assert_same_refs, sorted};
@@ -347,4 +348,37 @@ fn skip_and_leaf_in_one_type() {
     assert_same_refs(&value.sift::<Marker>(), &[&value.visible]);
     assert_same_refs(&value.sift::<Foreign>(), &[&value.foreign]);
     assert_eq!(value.sift::<u32>(), [&3]);
+}
+
+// D22
+#[test]
+fn with_hands_the_field_to_a_function() {
+    let value = WithCustom {
+        visible: Marker(1),
+        pair: ForeignPair(Marker(2), Marker(3)),
+        markers: vec![Marker(4), Marker(5)],
+    };
+    let markers: Vec<u32> = value.sift::<Marker>().iter().map(|m| m.0).collect();
+    assert_eq!(markers, [1, 2, 3, 4, 5]);
+    assert_same_refs(&value.sift::<ForeignPair>(), &[&value.pair]);
+    // `walk_markers` walks a slice, and a slice never offers itself.
+    assert!(value.sift::<Vec<Marker>>().is_empty());
+    // `offer` reports a value without looking inside it, so the `u32`s of the offered markers are
+    // not reached; `walk` does look inside.
+    assert_eq!(value.sift::<u32>(), [&1, &4, &5]);
+}
+
+// D23
+#[test]
+fn with_in_enum_variants() {
+    let variants = [
+        VariantsWithCustom::Pair(ForeignPair(Marker(1), Marker(2)), Marker(3)),
+        VariantsWithCustom::Named {
+            pair: ForeignPair(Marker(4), Marker(5)),
+        },
+    ];
+    let markers: Vec<u32> = variants.sift::<Marker>().iter().map(|m| m.0).collect();
+    assert_eq!(markers, [2, 3, 4, 5]);
+    // Only `visit_foreign_pair` offers the pair itself.
+    assert_eq!(variants.sift::<ForeignPair>().len(), 1);
 }

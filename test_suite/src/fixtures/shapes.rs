@@ -2,10 +2,11 @@
 
 use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
+use std::ops::ControlFlow;
 use std::rc::Weak;
 use std::sync::Mutex;
 
-use typesift::TypeSift;
+use typesift::{Sifter, TypeSift};
 
 use super::ids::Marker;
 use super::trees::Tree;
@@ -177,6 +178,55 @@ pub struct SkipAndLeaf {
     #[typesift(leaf)]
     pub foreign: Foreign,
     pub visible: Marker,
+}
+
+/// A foreign type whose parts are worth searching.
+#[derive(Debug)]
+pub struct ForeignPair(pub Marker, pub Marker);
+
+/// Offers the pair itself and both halves. `offer` reports one value without looking inside it.
+pub fn visit_foreign_pair<'a, S: Sifter<'a>>(
+    pair: &'a ForeignPair,
+    sift: &mut S,
+) -> ControlFlow<S::Break> {
+    sift.offer(pair)?;
+    sift.offer(&pair.0)?;
+    sift.offer(&pair.1)
+}
+
+/// Offers only the second half: a `with` function decides what the search sees.
+pub fn visit_second_only<'a, S: Sifter<'a>>(
+    pair: &'a ForeignPair,
+    sift: &mut S,
+) -> ControlFlow<S::Break> {
+    sift.offer(&pair.1)
+}
+
+/// Walks a value that does implement `TypeSift`. A slice never offers itself, so the `Vec` around
+/// it is not found.
+pub fn walk_markers<'a, S: Sifter<'a>>(
+    markers: &'a [Marker],
+    sift: &mut S,
+) -> ControlFlow<S::Break> {
+    sift.walk(markers)
+}
+
+#[derive(Debug, TypeSift)]
+pub struct WithCustom {
+    pub visible: Marker,
+    #[typesift(with = visit_foreign_pair)]
+    pub pair: ForeignPair,
+    #[typesift(with = walk_markers)]
+    pub markers: Vec<Marker>,
+}
+
+#[derive(Debug, TypeSift)]
+pub enum VariantsWithCustom {
+    Pair(#[typesift(with = visit_second_only)] ForeignPair, Marker),
+    Named {
+        #[typesift(with = visit_foreign_pair)]
+        pair: ForeignPair,
+    },
 }
 
 #[derive(Debug, TypeSift)]

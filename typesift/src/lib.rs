@@ -241,6 +241,50 @@
 //! `leaf` also works on types that do implement `TypeSift`, when you want the field found but its
 //! contents left alone.
 //!
+//! # Custom traversal
+//!
+//! When a field needs more than "found" or "ignored", `#[typesift(with = path)]` hands it to a
+//! function of yours. The function receives a [`Sifter`], which it uses to [`offer`](Sifter::offer)
+//! individual values or to [`walk`](Sifter::walk) values that implement `TypeSift`. Whatever it
+//! offers is what the search sees, the field included:
+//!
+//! ```
+//! use std::ops::ControlFlow;
+//!
+//! use typesift::{Sifter, TypeSift};
+//!
+//! // Stands in for a type from another crate.
+//! struct Headers(Vec<(String, String)>);
+//!
+//! fn visit_headers<'a, S: Sifter<'a>>(headers: &'a Headers, sift: &mut S) -> ControlFlow<S::Break> {
+//!     sift.offer(headers)?;
+//!     headers.0.iter().try_for_each(|(name, value)| {
+//!         sift.offer(name)?;
+//!         sift.offer(value)
+//!     })
+//! }
+//!
+//! #[derive(TypeSift)]
+//! struct Request {
+//!     path: String,
+//!     #[typesift(with = visit_headers)]
+//!     headers: Headers,
+//! }
+//!
+//! let request = Request {
+//!     path: "/orders".to_string(),
+//!     headers: Headers(vec![("accept".to_string(), "application/json".to_string())]),
+//! };
+//!
+//! assert_eq!(
+//!     request.sift::<String>(),
+//!     ["/orders", "accept", "application/json"]
+//! );
+//! ```
+//!
+//! The function must be generic over the sifter, so it cannot be a closure. It also decides the
+//! traversal order of that field, and whether the field itself is offered at all.
+//!
 //! # Supported types
 //!
 //! - Structs and enums with `#[derive(TypeSift)]`, including generic ones. Every type parameter
@@ -373,6 +417,72 @@ pub trait TypeSift: 'static {
             f(value);
             ControlFlow::Continue(())
         });
+    }
+}
+
+/// Hands values to the search from a `#[typesift(with = ...)]` function.
+///
+/// A `with` function is generic over the sifter, which keeps the searched type out of its
+/// signature. It cannot be a closure, because closures cannot be generic:
+///
+/// ```
+/// use std::ops::ControlFlow;
+///
+/// use typesift::Sifter;
+///
+/// struct Pair(String, String);
+///
+/// fn visit_pair<'a, S: Sifter<'a>>(pair: &'a Pair, sift: &mut S) -> ControlFlow<S::Break> {
+///     sift.offer(pair)?;
+///     sift.offer(&pair.0)?;
+///     sift.offer(&pair.1)
+/// }
+/// ```
+pub trait Sifter<'a> {
+    /// What the search carries when it stops early, the `B` of [`TypeSift::visit`].
+    type Break;
+
+    /// Reports `value` if its type is the one being searched for.
+    ///
+    /// `X` only has to be `'static`, so this works for types that cannot implement [`TypeSift`].
+    fn offer<X: 'static>(&mut self, value: &'a X) -> ControlFlow<Self::Break>;
+
+    /// Searches `value` itself and everything inside it.
+    fn walk<X: ?Sized + TypeSift>(&mut self, value: &'a X) -> ControlFlow<Self::Break>;
+}
+
+/// The [`Sifter`] that `#[derive(TypeSift)]` passes to a `with` function.
+#[doc(hidden)]
+pub struct Sift<'v, T, B, F> {
+    visitor: &'v mut F,
+    marker: PhantomData<fn(&T) -> B>,
+}
+
+#[doc(hidden)]
+impl<'v, T, B, F> Sift<'v, T, B, F> {
+    pub fn new(visitor: &'v mut F) -> Self {
+        Self {
+            visitor,
+            marker: PhantomData,
+        }
+    }
+}
+
+impl<'a, T: 'static, B, F> Sifter<'a> for Sift<'_, T, B, F>
+where
+    F: FnMut(&'a T) -> ControlFlow<B>,
+{
+    type Break = B;
+
+    fn offer<X: 'static>(&mut self, value: &'a X) -> ControlFlow<B> {
+        match (value as &dyn Any).downcast_ref::<T>() {
+            Some(matched) => (self.visitor)(matched),
+            None => ControlFlow::Continue(()),
+        }
+    }
+
+    fn walk<X: ?Sized + TypeSift>(&mut self, value: &'a X) -> ControlFlow<B> {
+        value.visit::<T, B, F>(self.visitor)
     }
 }
 

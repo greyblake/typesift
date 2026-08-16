@@ -1,8 +1,8 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    Attribute, Data, DataEnum, DeriveInput, Error, Field, Fields, Index, Member, parse_macro_input,
-    parse_quote,
+    Attribute, Data, DataEnum, DeriveInput, Error, Field, Fields, Index, Member, Path,
+    parse_macro_input, parse_quote,
 };
 
 /// Derives `typesift::TypeSift`: the value itself is offered first, then each field is visited in
@@ -11,11 +11,13 @@ use syn::{
 /// Every type parameter gets a `TypeSift` bound. Types with lifetime parameters are rejected
 /// because `TypeSift` requires `'static` types, and unions because the active field is unknown.
 ///
-/// Fields accept one of two arguments, and neither removes the bound on type parameters:
+/// Fields accept one argument, and none of them removes the bound on type parameters:
 ///
 /// - `#[typesift(skip)]` leaves the field out of the traversal, so its type needs no impl.
 /// - `#[typesift(leaf)]` offers the field itself but does not look inside it, so its type needs
 ///   only to be `'static`. This is how a type from another crate can still be found.
+/// - `#[typesift(with = path)]` hands the field to a function generic over `typesift::Sifter`,
+///   which decides what of it the search sees.
 #[proc_macro_derive(TypeSift, attributes(typesift))]
 pub fn derive_type_sift(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -73,7 +75,7 @@ fn visit_struct(fields: &Fields) -> syn::Result<TokenStream> {
     let mut visits = Vec::new();
     for (index, field) in fields.iter().enumerate() {
         let mode = field_mode(field)?;
-        if mode == FieldMode::Skip {
+        if matches!(mode, FieldMode::Skip) {
             continue;
         }
         let member = match &field.ident {
@@ -103,7 +105,7 @@ fn visit_enum(data: &DataEnum) -> syn::Result<TokenStream> {
         let mut visits = Vec::new();
         for (index, field) in variant.fields.iter().enumerate() {
             let mode = field_mode(field)?;
-            if mode == FieldMode::Skip {
+            if matches!(mode, FieldMode::Skip) {
                 patterns.push(quote!(_));
             } else {
                 let binding = format_ident!("__field{}", index);
@@ -138,7 +140,6 @@ fn visit_enum(data: &DataEnum) -> syn::Result<TokenStream> {
 }
 
 /// What the derive does with one field.
-#[derive(Clone, Copy, PartialEq, Eq)]
 enum FieldMode {
     /// Hand the field to its own `TypeSift` impl.
     Visit,
@@ -146,12 +147,24 @@ enum FieldMode {
     Skip,
     /// Offer the field without looking inside it: `#[typesift(leaf)]`.
     Leaf,
+    /// Hand the field to a function of the user's: `#[typesift(with = path)]`.
+    With(Path),
 }
 
 impl FieldMode {
+    /// The argument that selected this mode, for error messages.
+    fn name(&self) -> &'static str {
+        match self {
+            FieldMode::Visit => "",
+            FieldMode::Skip => "skip",
+            FieldMode::Leaf => "leaf",
+            FieldMode::With(_) => "with",
+        }
+    }
+
     /// The code that visits one field. `field` must evaluate to a reference that lives as long as
     /// `self`.
-    fn apply(self, field: &TokenStream) -> TokenStream {
+    fn apply(&self, field: &TokenStream) -> TokenStream {
         match self {
             FieldMode::Visit => quote! {
                 ::typesift::TypeSift::visit::<__T, __B, __F>(#field, __visitor)?;
@@ -164,6 +177,13 @@ impl FieldMode {
                 {
                     __visitor(__matched)?;
                 }
+            },
+            // `__visitor` is reborrowed, so later fields can still use it.
+            FieldMode::With(path) => quote! {
+                #path(
+                    #field,
+                    &mut ::typesift::Sift::<__T, __B, __F>::new(&mut *__visitor),
+                )?;
             },
             FieldMode::Skip => TokenStream::new(),
         }
@@ -179,20 +199,32 @@ fn field_mode(field: &Field) -> syn::Result<FieldMode> {
                 FieldMode::Skip
             } else if meta.path.is_ident("leaf") {
                 FieldMode::Leaf
+            } else if meta.path.is_ident("with") {
+                FieldMode::With(meta.value()?.parse()?)
             } else {
-                return Err(meta.error("unknown `typesift` argument, expected `skip` or `leaf`"));
+                return Err(
+                    meta.error("unknown `typesift` argument, expected `skip`, `leaf` or `with`")
+                );
             };
 
-            if mode == FieldMode::Visit {
-                mode = found;
-                Ok(())
-            } else if mode == found {
-                Err(meta.error(match found {
-                    FieldMode::Leaf => "duplicate `leaf`",
-                    _ => "duplicate `skip`",
-                }))
-            } else {
-                Err(meta.error("`skip` and `leaf` cannot be combined"))
+            let conflict = match (&mode, &found) {
+                (FieldMode::Visit, _) => None,
+                (existing, found) if existing.name() == found.name() => {
+                    Some(format!("duplicate `{}`", found.name()))
+                }
+                (existing, found) => Some(format!(
+                    "`{}` and `{}` cannot be combined",
+                    existing.name(),
+                    found.name()
+                )),
+            };
+
+            match conflict {
+                Some(message) => Err(meta.error(message)),
+                None => {
+                    mode = found;
+                    Ok(())
+                }
             }
         })?;
     }
@@ -267,7 +299,7 @@ mod tests {
         };
         assert_eq!(
             error_message(unknown),
-            "unknown `typesift` argument, expected `skip` or `leaf`"
+            "unknown `typesift` argument, expected `skip`, `leaf` or `with`"
         );
 
         let duplicate_skip = parse_quote! {
@@ -340,5 +372,46 @@ mod tests {
         // The field is offered, never walked into.
         assert!(!generated.contains("visit :: < __T , __B , __F > (& self . id"));
         assert!(generated.contains("visit :: < __T , __B , __F > (& self . amount"));
+    }
+
+    #[test]
+    fn with_takes_a_path_and_no_other_argument() {
+        let duplicate = parse_quote! {
+            struct Request {
+                #[typesift(with = visit_headers, with = visit_headers)]
+                headers: Headers,
+            }
+        };
+        assert_eq!(error_message(duplicate), "duplicate `with`");
+
+        let combined = parse_quote! {
+            struct Request {
+                #[typesift(skip, with = visit_headers)]
+                headers: Headers,
+            }
+        };
+        assert_eq!(
+            error_message(combined),
+            "`skip` and `with` cannot be combined"
+        );
+
+        let without_a_path = parse_quote! {
+            struct Request {
+                #[typesift(with)]
+                headers: Headers,
+            }
+        };
+        assert!(error_message(without_a_path).contains("expected"));
+
+        let generated = generated_code(parse_quote! {
+            struct Request {
+                path: String,
+                #[typesift(with = visit_headers)]
+                headers: Headers,
+            }
+        });
+        assert!(generated.contains("visit_headers"));
+        assert!(generated.contains("Sift"));
+        assert!(generated.contains("visit :: < __T , __B , __F > (& self . path"));
     }
 }
