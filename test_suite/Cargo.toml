@@ -7,12 +7,14 @@ publish = false
 [dependencies]
 typesift = { path = "../typesift", features = [
     "chrono",
+    "indexmap",
     "rust_decimal",
     "time",
     "uuid",
 ] }
 
 chrono = "0.4"
+indexmap = "2"
 rust_decimal = "1"
 time = "0.3"
 uuid = "1"

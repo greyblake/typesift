@@ -7,6 +7,8 @@
 
 #[cfg(feature = "chrono")]
 mod chrono;
+#[cfg(feature = "indexmap")]
+mod indexmap;
 #[cfg(feature = "rust_decimal")]
 mod rust_decimal;
 #[cfg(feature = "time")]

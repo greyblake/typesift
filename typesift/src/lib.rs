@@ -311,6 +311,7 @@
 //! | Feature | Types | Treatment |
 //! |---|---|---|
 //! | `chrono` | `DateTime<Tz>`, `NaiveDate`, `NaiveDateTime`, `NaiveTime`, `TimeDelta` | Leaf |
+//! | `indexmap` | `IndexMap`, `IndexSet` | Walked, in insertion order |
 //! | `rust_decimal` | `Decimal` | Leaf |
 //! | `time` | `OffsetDateTime`, `PrimitiveDateTime`, `Date`, `Time`, `UtcOffset`, `Duration` | Leaf |
 //! | `uuid` | `uuid::Uuid` | Leaf |
@@ -602,6 +603,9 @@ macro_rules! impl_type_sift_for_collection {
     )*};
 }
 
+#[allow(unused_imports)]
+pub(crate) use impl_type_sift_for_collection;
+
 impl_type_sift_for_collection!(
     Vec<X>,
     VecDeque<X>,
@@ -627,6 +631,9 @@ macro_rules! impl_type_sift_for_map {
         }
     )*};
 }
+
+#[allow(unused_imports)]
+pub(crate) use impl_type_sift_for_map;
 
 impl_type_sift_for_map!(BTreeMap<K, V>, HashMap<K, V, S>);
 
