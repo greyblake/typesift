@@ -1,6 +1,9 @@
 //! Every shape the derive accepts, including names that could clash with generated code.
 
+use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
+use std::rc::Weak;
+use std::sync::Mutex;
 
 use typesift::TypeSift;
 
@@ -101,6 +104,42 @@ pub struct WithCfg {
     pub a: Marker,
     #[cfg(any())]
     pub b: std::cell::RefCell<u32>,
+}
+
+/// `cache` has no `TypeSift` impl. `hidden` has one, but is skipped anyway.
+#[derive(Debug, TypeSift)]
+pub struct WithSkipped {
+    pub visible: Marker,
+    /// Other attributes, doc comments included, can sit next to `skip`.
+    #[typesift(skip)]
+    pub cache: RefCell<Vec<Marker>>,
+    #[typesift(skip)]
+    pub hidden: Marker,
+    pub also_visible: Marker,
+}
+
+#[derive(Debug, TypeSift)]
+pub struct TupleWithSkipped(pub Marker, #[typesift(skip)] pub Marker, pub Marker);
+
+#[derive(Debug, TypeSift)]
+pub enum VariantsWithSkipped {
+    Named {
+        visible: Marker,
+        #[typesift(skip)]
+        hidden: Marker,
+        #[typesift(skip)]
+        lock: Mutex<Marker>,
+    },
+    Tuple(#[typesift(skip)] Marker, Marker),
+    AllSkipped(#[typesift(skip)] Cell<u32>),
+}
+
+/// `T` still needs `TypeSift`, although the only other use of it is in a skipped field.
+#[derive(Debug, TypeSift)]
+pub struct GenericWithSkipped<T> {
+    pub value: T,
+    #[typesift(skip)]
+    pub weak: Weak<T>,
 }
 
 #[derive(Debug, TypeSift)]

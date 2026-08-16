@@ -1,16 +1,20 @@
 //! Every shape `#[derive(TypeSift)]` accepts.
 
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::marker::PhantomData;
+use std::rc::Rc;
+use std::sync::Mutex;
 
 use typesift::TypeSift;
 
 use crate::fixtures::ids::{Marker, NodeId, TaskId, TeamId, UserId};
 use crate::fixtures::org::Assignee;
 use crate::fixtures::shapes::{
-    Discriminants, EmptyBraced, EmptyTuple, HygieneNames, MutualA, MutualB, NamedStruct, Nested,
-    Never, Pair, RawIdents, SelfRef, SingleVariant, TupleStruct, Typed, UnitStruct, Variants,
-    WithCfg, WithDefault, Wrapper, no_import, shadow,
+    Discriminants, EmptyBraced, EmptyTuple, GenericWithSkipped, HygieneNames, MutualA, MutualB,
+    NamedStruct, Nested, Never, Pair, RawIdents, SelfRef, SingleVariant, TupleStruct,
+    TupleWithSkipped, Typed, UnitStruct, Variants, VariantsWithSkipped, WithCfg, WithDefault,
+    WithSkipped, Wrapper, no_import, shadow,
 };
 use crate::fixtures::trees::{List, Tree, list, numbered_tree};
 use crate::helpers::{assert_same_refs, sorted};
@@ -240,4 +244,57 @@ fn types_declared_inside_a_function() {
     }
 
     assert_eq!(Local { hidden: Marker(9) }.sift::<Marker>(), [&Marker(9)]);
+}
+
+// D16
+#[test]
+fn skipped_struct_fields_are_not_searched() {
+    let value = WithSkipped {
+        visible: Marker(1),
+        cache: RefCell::new(vec![Marker(2)]),
+        hidden: Marker(3),
+        also_visible: Marker(4),
+    };
+    assert_same_refs(
+        &value.sift::<Marker>(),
+        &[&value.visible, &value.also_visible],
+    );
+    assert!(value.sift::<RefCell<Vec<Marker>>>().is_empty());
+    assert_same_refs(&value.sift::<WithSkipped>(), &[&value]);
+
+    let tuple = TupleWithSkipped(Marker(1), Marker(2), Marker(3));
+    assert_same_refs(&tuple.sift::<Marker>(), &[&tuple.0, &tuple.2]);
+}
+
+// D17
+#[test]
+fn skipped_variant_fields_are_not_searched() {
+    let variants = [
+        VariantsWithSkipped::Named {
+            visible: Marker(1),
+            hidden: Marker(2),
+            lock: Mutex::new(Marker(3)),
+        },
+        VariantsWithSkipped::Tuple(Marker(4), Marker(5)),
+        VariantsWithSkipped::AllSkipped(Cell::new(6)),
+    ];
+    let markers: Vec<u32> = variants.sift::<Marker>().iter().map(|m| m.0).collect();
+    assert_eq!(markers, [1, 5]);
+    // The `u32` inside the skipped `Cell` is not reached either.
+    assert_eq!(variants.sift::<u32>(), [&1, &5]);
+    assert_same_refs(
+        &variants.sift::<VariantsWithSkipped>(),
+        &[&variants[0], &variants[1], &variants[2]],
+    );
+}
+
+// D18
+#[test]
+fn skipped_field_in_a_generic_struct() {
+    let shared = Rc::new(Marker(1));
+    let value = GenericWithSkipped {
+        value: Marker(2),
+        weak: Rc::downgrade(&shared),
+    };
+    assert_same_refs(&value.sift::<Marker>(), &[&value.value]);
 }

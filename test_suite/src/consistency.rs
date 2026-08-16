@@ -1,14 +1,18 @@
 //! `sift`, `sift_each` and `visit` must agree on every fixture.
 
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::rc::Rc;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::fixtures::containers::{AllContainers, Leaves, all_containers};
 use crate::fixtures::ids::{Absent, Marker, NodeId, TaskId, UserId};
 use crate::fixtures::json::{Json, sample_json};
 use crate::fixtures::org::{Org, Task, Team, sample_org};
-use crate::fixtures::shapes::{MutualA, MutualB, SelfRef, Variants};
+use crate::fixtures::shapes::{
+    MutualA, MutualB, SelfRef, Variants, VariantsWithSkipped, WithSkipped,
+};
 use crate::fixtures::trees::{Entry, Folder, List, Tree, list, numbered_tree, shared_folders};
 use crate::helpers::{check_consistency, count};
 
@@ -75,6 +79,25 @@ fn shapes() {
         }],
     };
     check!(&mutual => MutualA, MutualB, Marker);
+
+    let with_skipped = WithSkipped {
+        visible: Marker(1),
+        cache: RefCell::new(vec![Marker(2)]),
+        hidden: Marker(3),
+        also_visible: Marker(4),
+    };
+    check!(&with_skipped => WithSkipped, Marker, u32);
+
+    let variants_with_skipped = [
+        VariantsWithSkipped::Named {
+            visible: Marker(1),
+            hidden: Marker(2),
+            lock: Mutex::new(Marker(3)),
+        },
+        VariantsWithSkipped::Tuple(Marker(4), Marker(5)),
+        VariantsWithSkipped::AllSkipped(Cell::new(6)),
+    ];
+    check!(&variants_with_skipped => VariantsWithSkipped, Marker, u32);
 }
 
 // C4

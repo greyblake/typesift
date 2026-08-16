@@ -204,3 +204,74 @@
 //!     value: T,
 //! }
 //! ```
+//!
+//! # UI10: `#[typesift(...)]` is only allowed on fields
+//!
+//! ```compile_fail
+//! #[derive(typesift::TypeSift)]
+//! #[typesift(skip)]
+//! struct Session {
+//!     user: u64,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! #[derive(typesift::TypeSift)]
+//! enum Event {
+//!     #[typesift(skip)]
+//!     Login(u64),
+//! }
+//! ```
+//!
+//! ```
+//! #[derive(typesift::TypeSift)]
+//! enum Event {
+//!     Login(#[typesift(skip)] u64),
+//! }
+//! ```
+//!
+//! # UI11: `skip` is the only argument, given once
+//!
+//! ```compile_fail
+//! #[derive(typesift::TypeSift)]
+//! struct Session {
+//!     #[typesift(rename)]
+//!     user: u64,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! #[derive(typesift::TypeSift)]
+//! struct Session {
+//!     #[typesift]
+//!     user: u64,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! #[derive(typesift::TypeSift)]
+//! struct Session {
+//!     #[typesift(skip, skip)]
+//!     user: u64,
+//! }
+//! ```
+//!
+//! ```
+//! #[derive(typesift::TypeSift)]
+//! struct Session {
+//!     #[typesift(skip)]
+//!     user: u64,
+//! }
+//! ```
+//!
+//! # UI12: a skipped field needs no impl
+//!
+//! The passing counterpart of the `Cell` case in UI3.
+//!
+//! ```
+//! #[derive(typesift::TypeSift)]
+//! struct Counter {
+//!     #[typesift(skip)]
+//!     hits: std::cell::Cell<u32>,
+//! }
+//! ```

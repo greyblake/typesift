@@ -180,6 +180,33 @@
 //! assert_eq!(first_friend, ControlFlow::Break(&UserId(4)));
 //! ```
 //!
+//! # Skipping fields
+//!
+//! A field marked `#[typesift(skip)]` is not searched, so its type needs no `TypeSift` impl. Use it
+//! for caches, locks, handles and other fields that can't or shouldn't be searched:
+//!
+//! ```
+//! use std::cell::RefCell;
+//!
+//! use typesift::TypeSift;
+//!
+//! #[derive(TypeSift)]
+//! struct Session {
+//!     user: u64,
+//!     #[typesift(skip)]
+//!     recent: RefCell<Vec<u64>>,
+//! }
+//!
+//! let session = Session {
+//!     user: 7,
+//!     recent: RefCell::new(vec![1, 2]),
+//! };
+//! assert_eq!(session.sift::<u64>(), [&7]);
+//! ```
+//!
+//! The attribute works on fields of structs and of enum variants. A type parameter still needs a
+//! `TypeSift` impl even when only skipped fields use it.
+//!
 //! # Supported types
 //!
 //! - Structs and enums with `#[derive(TypeSift)]`, including generic ones. Every type parameter
@@ -212,6 +239,7 @@
 //!   with lifetime parameters. `&'static T` fields are fine.
 //! - `Cell`, `RefCell`, `Mutex` and other interior-mutability types are not supported, because
 //!   they cannot hand out references to their contents for as long as the outer value is borrowed.
+//!   Mark such fields `#[typesift(skip)]`.
 //! - The traversal recurses once per nesting level, so very deep values (tens of thousands of
 //!   levels in a debug build) can overflow the stack.
 //! - The derive cannot be used on a type with a type parameter named `__T`, `__B` or `__F`.
