@@ -10,6 +10,7 @@ typesift_macros = { version = "0.1.0", path = "../typesift_macros" }
 chrono = { version = "0.4", optional = true, default-features = false }
 indexmap = { version = "2", optional = true, default-features = false }
 rust_decimal = { version = "1", optional = true, default-features = false }
+serde_json = { version = "1", optional = true }
 smallvec = { version = "1", optional = true, default-features = false }
 time = { version = "0.3", optional = true, default-features = false }
 uuid = { version = "1", optional = true, default-features = false }
@@ -19,6 +20,7 @@ uuid = { version = "1", optional = true, default-features = false }
 chrono = ["dep:chrono"]
 indexmap = ["dep:indexmap"]
 rust_decimal = ["dep:rust_decimal"]
+serde_json = ["dep:serde_json"]
 smallvec = ["dep:smallvec"]
 time = ["dep:time"]
 uuid = ["dep:uuid"]

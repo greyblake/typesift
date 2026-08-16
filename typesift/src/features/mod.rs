@@ -11,6 +11,8 @@ mod chrono;
 mod indexmap;
 #[cfg(feature = "rust_decimal")]
 mod rust_decimal;
+#[cfg(feature = "serde_json")]
+mod serde_json;
 #[cfg(feature = "smallvec")]
 mod smallvec;
 #[cfg(feature = "time")]
