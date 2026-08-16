@@ -312,6 +312,7 @@
 //! |---|---|---|
 //! | `bytes` | `Bytes`, `BytesMut` | Leaf |
 //! | `chrono` | `DateTime<Tz>`, `NaiveDate`, `NaiveDateTime`, `NaiveTime`, `TimeDelta` | Leaf |
+//! | `http` | `HeaderMap`, `HeaderName`, `HeaderValue`, `Uri`, `Method`, `StatusCode`, `Version` | `HeaderMap` walked, the rest leaves |
 //! | `indexmap` | `IndexMap`, `IndexSet` | Walked, in insertion order |
 //! | `rust_decimal` | `Decimal` | Leaf |
 //! | `serde_json` | `Value`, `Map<String, Value>` | Walked; `Number` is a leaf |

@@ -9,6 +9,8 @@
 mod bytes;
 #[cfg(feature = "chrono")]
 mod chrono;
+#[cfg(feature = "http")]
+mod http;
 #[cfg(feature = "indexmap")]
 mod indexmap;
 #[cfg(feature = "rust_decimal")]
