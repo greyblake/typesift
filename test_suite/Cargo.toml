@@ -5,7 +5,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-typesift = { path = "../typesift", features = ["chrono", "uuid"] }
+typesift = { path = "../typesift", features = ["chrono", "time", "uuid"] }
 
 chrono = "0.4"
+time = "0.3"
 uuid = "1"

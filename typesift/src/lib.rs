@@ -311,6 +311,7 @@
 //! | Feature | Types | Treatment |
 //! |---|---|---|
 //! | `chrono` | `DateTime<Tz>`, `NaiveDate`, `NaiveDateTime`, `NaiveTime`, `TimeDelta` | Leaf |
+//! | `time` | `OffsetDateTime`, `PrimitiveDateTime`, `Date`, `Time`, `UtcOffset`, `Duration` | Leaf |
 //! | `uuid` | `uuid::Uuid` | Leaf |
 //!
 //! # Traversal order
