@@ -180,64 +180,59 @@
 //! assert_eq!(first_friend, ControlFlow::Break(&UserId(4)));
 //! ```
 //!
-//! # Skipping fields
+//! # Types from other crates
 //!
-//! A field marked `#[typesift(skip)]` is not searched, so its type needs no `TypeSift` impl. Use it
-//! for caches, locks, handles and other fields that can't or shouldn't be searched:
+//! A type you don't own cannot implement `TypeSift`: the trait and the type are both foreign to
+//! your crate, so the orphan rule forbids the impl. Three ways around it:
+//!
+//! - **Turn on its feature**, if this crate ships one. See [Cargo features](#cargo-features).
+//! - **`#[typesift(leaf)]`** offers the field but never looks inside it, which is what you want for
+//!   ids, timestamps and other opaque values. **`#[typesift(skip)]`** leaves the field out
+//!   altogether, which also suits caches, locks and handles of your own that should never be
+//!   searched.
+//! - **`#[typesift(with = path)]`** hands the field to a function of yours, which decides what the
+//!   search sees. [Custom traversal](#custom-traversal) describes the [`Sifter`] it is given.
 //!
 //! ```
 //! use std::cell::RefCell;
+//! use std::ops::ControlFlow;
 //!
-//! use typesift::TypeSift;
+//! use typesift::{Sifter, TypeSift};
 //!
-//! #[derive(TypeSift)]
-//! struct Session {
-//!     user: u64,
-//!     #[typesift(skip)]
-//!     recent: RefCell<Vec<u64>>,
-//! }
-//!
-//! let session = Session {
-//!     user: 7,
-//!     recent: RefCell::new(vec![1, 2]),
-//! };
-//! assert_eq!(session.sift::<u64>(), [&7]);
-//! ```
-//!
-//! The attribute works on fields of structs and of enum variants. A type parameter still needs a
-//! `TypeSift` impl even when only skipped fields use it.
-//!
-//! # Types from other crates
-//!
-//! A type you don't own can't implement `TypeSift`, because both the trait and the type would be
-//! foreign to your crate. Mark such a field `#[typesift(leaf)]`: it is offered to the visitor like
-//! any other value, but never looked inside, so its type only has to be `'static`.
-//!
-//! ```
-//! use typesift::TypeSift;
-//!
-//! // Stands in for a type from another crate.
+//! // Two types from another crate.
 //! #[derive(Debug, PartialEq)]
 //! struct Uuid([u8; 16]);
+//! struct Pair(u32, u32);
 //!
-//! #[derive(TypeSift)]
-//! struct Invoice {
-//!     #[typesift(leaf)]
-//!     id: Uuid,
-//!     amount: u64,
+//! fn visit_pair<'a, S: Sifter<'a>>(pair: &'a Pair, sift: &mut S) -> ControlFlow<S::Break> {
+//!     sift.offer(&pair.0)?;
+//!     sift.offer(&pair.1)
 //! }
 //!
-//! let invoice = Invoice {
+//! #[derive(TypeSift)]
+//! struct Row {
+//!     #[typesift(leaf)]
+//!     id: Uuid,
+//!     #[typesift(with = visit_pair)]
+//!     pair: Pair,
+//!     #[typesift(skip)]
+//!     cache: RefCell<Vec<u32>>,
+//! }
+//!
+//! let row = Row {
 //!     id: Uuid([7; 16]),
-//!     amount: 100,
+//!     pair: Pair(1, 2),
+//!     cache: RefCell::new(vec![9]),
 //! };
 //!
-//! assert_eq!(invoice.sift::<Uuid>(), [&Uuid([7; 16])]);
-//! assert_eq!(invoice.sift::<u64>(), [&100]);
-//! // The bytes inside `id` are not searched.
-//! assert!(invoice.sift::<[u8; 16]>().is_empty());
+//! assert_eq!(row.sift::<Uuid>(), [&Uuid([7; 16])]);
+//! // Both halves of the pair are found. The skipped cache and the bytes inside `id` are not.
+//! assert_eq!(row.sift::<u32>(), [&1, &2]);
+//! assert!(row.sift::<[u8; 16]>().is_empty());
 //! ```
 //!
+//! All three work on fields of structs and of enum variants, and none of them removes the
+//! `TypeSift` bound the derive puts on every type parameter, even one used only by a skipped field.
 //! `leaf` also works on types that do implement `TypeSift`, when you want the field found but its
 //! contents left alone.
 //!
@@ -312,6 +307,7 @@
 //! |---|---|---|
 //! | `bytes` | `Bytes`, `BytesMut` | Leaf |
 //! | `chrono` | `DateTime<Tz>`, `NaiveDate`, `NaiveDateTime`, `NaiveTime`, `TimeDelta` | Leaf |
+//! | `enum-map` | `EnumMap` | Values walked; keys are not stored, so they are never offered |
 //! | `http` | `HeaderMap`, `HeaderName`, `HeaderValue`, `Uri`, `Method`, `StatusCode`, `Version` | `HeaderMap` walked, the rest leaves |
 //! | `indexmap` | `IndexMap`, `IndexSet` | Walked, in insertion order |
 //! | `rust_decimal` | `Decimal` | Leaf |

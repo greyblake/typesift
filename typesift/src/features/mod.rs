@@ -9,6 +9,8 @@
 mod bytes;
 #[cfg(feature = "chrono")]
 mod chrono;
+#[cfg(feature = "enum-map")]
+mod enum_map;
 #[cfg(feature = "http")]
 mod http;
 #[cfg(feature = "indexmap")]

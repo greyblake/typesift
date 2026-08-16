@@ -2,6 +2,7 @@
 
 mod bytes;
 mod chrono;
+mod enum_map;
 mod http;
 mod indexmap;
 mod rust_decimal;
