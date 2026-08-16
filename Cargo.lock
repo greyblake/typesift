@@ -711,6 +711,7 @@ dependencies = [
 name = "typesift"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "chrono",
  "indexmap",
  "rust_decimal",
@@ -735,6 +736,7 @@ dependencies = [
 name = "typesift_test_suite"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "chrono",
  "indexmap",
  "rust_decimal",

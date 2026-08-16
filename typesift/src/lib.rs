@@ -310,6 +310,7 @@
 //!
 //! | Feature | Types | Treatment |
 //! |---|---|---|
+//! | `bytes` | `Bytes`, `BytesMut` | Leaf |
 //! | `chrono` | `DateTime<Tz>`, `NaiveDate`, `NaiveDateTime`, `NaiveTime`, `TimeDelta` | Leaf |
 //! | `indexmap` | `IndexMap`, `IndexSet` | Walked, in insertion order |
 //! | `rust_decimal` | `Decimal` | Leaf |

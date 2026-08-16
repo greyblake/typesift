@@ -5,6 +5,8 @@
 //! walked like a container. That choice is part of the API: changing it later changes what a search
 //! returns.
 
+#[cfg(feature = "bytes")]
+mod bytes;
 #[cfg(feature = "chrono")]
 mod chrono;
 #[cfg(feature = "indexmap")]

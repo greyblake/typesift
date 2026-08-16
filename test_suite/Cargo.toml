@@ -6,6 +6,7 @@ publish = false
 
 [dependencies]
 typesift = { path = "../typesift", features = [
+    "bytes",
     "chrono",
     "indexmap",
     "rust_decimal",
@@ -16,6 +17,7 @@ typesift = { path = "../typesift", features = [
     "uuid",
 ] }
 
+bytes = "1"
 chrono = "0.4"
 indexmap = "2"
 rust_decimal = "1"
