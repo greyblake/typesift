@@ -316,6 +316,7 @@
 //! | `serde_json` | `Value`, `Map<String, Value>` | Walked; `Number` is a leaf |
 //! | `smallvec` | `SmallVec` | Walked, like a `Vec` |
 //! | `time` | `OffsetDateTime`, `PrimitiveDateTime`, `Date`, `Time`, `UtcOffset`, `Duration` | Leaf |
+//! | `url` | `Url` | Leaf |
 //! | `uuid` | `uuid::Uuid` | Leaf |
 //!
 //! # Traversal order

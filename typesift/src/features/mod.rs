@@ -17,5 +17,7 @@ mod serde_json;
 mod smallvec;
 #[cfg(feature = "time")]
 mod time;
+#[cfg(feature = "url")]
+mod url;
 #[cfg(feature = "uuid")]
 mod uuid;

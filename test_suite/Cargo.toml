@@ -12,6 +12,7 @@ typesift = { path = "../typesift", features = [
     "serde_json",
     "smallvec",
     "time",
+    "url",
     "uuid",
 ] }
 
@@ -21,4 +22,5 @@ rust_decimal = "1"
 serde_json = "1"
 smallvec = "1"
 time = "0.3"
+url = "2"
 uuid = "1"
