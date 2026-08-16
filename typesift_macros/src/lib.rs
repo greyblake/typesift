@@ -11,8 +11,11 @@ use syn::{
 /// Every type parameter gets a `TypeSift` bound. Types with lifetime parameters are rejected
 /// because `TypeSift` requires `'static` types, and unions because the active field is unknown.
 ///
-/// A field marked `#[typesift(skip)]` is not visited, so its type needs no `TypeSift` impl. The
-/// attribute is only accepted on fields, and it does not remove the bound on type parameters.
+/// Fields accept one of two arguments, and neither removes the bound on type parameters:
+///
+/// - `#[typesift(skip)]` leaves the field out of the traversal, so its type needs no impl.
+/// - `#[typesift(leaf)]` offers the field itself but does not look inside it, so its type needs
+///   only to be `'static`. This is how a type from another crate can still be found.
 #[proc_macro_derive(TypeSift, attributes(typesift))]
 pub fn derive_type_sift(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -69,14 +72,15 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
 fn visit_struct(fields: &Fields) -> syn::Result<TokenStream> {
     let mut visits = Vec::new();
     for (index, field) in fields.iter().enumerate() {
-        if is_skipped(field)? {
+        let mode = field_mode(field)?;
+        if mode == FieldMode::Skip {
             continue;
         }
         let member = match &field.ident {
             Some(ident) => Member::Named(ident.clone()),
             None => Member::Unnamed(Index::from(index)),
         };
-        visits.push(visit_field(&quote!(&self.#member)));
+        visits.push(mode.apply(&quote!(&self.#member)));
     }
 
     Ok(quote! {
@@ -98,11 +102,12 @@ fn visit_enum(data: &DataEnum) -> syn::Result<TokenStream> {
         let mut patterns = Vec::new();
         let mut visits = Vec::new();
         for (index, field) in variant.fields.iter().enumerate() {
-            if is_skipped(field)? {
+            let mode = field_mode(field)?;
+            if mode == FieldMode::Skip {
                 patterns.push(quote!(_));
             } else {
                 let binding = format_ident!("__field{}", index);
-                visits.push(visit_field(&quote!(#binding)));
+                visits.push(mode.apply(&quote!(#binding)));
                 patterns.push(quote!(#binding));
             }
         }
@@ -132,29 +137,66 @@ fn visit_enum(data: &DataEnum) -> syn::Result<TokenStream> {
     })
 }
 
-/// `field` must evaluate to a reference that lives as long as `self`.
-fn visit_field(field: &TokenStream) -> TokenStream {
-    quote! {
-        ::typesift::TypeSift::visit::<__T, __B, __F>(#field, __visitor)?;
+/// What the derive does with one field.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FieldMode {
+    /// Hand the field to its own `TypeSift` impl.
+    Visit,
+    /// Leave the field out entirely: `#[typesift(skip)]`.
+    Skip,
+    /// Offer the field without looking inside it: `#[typesift(leaf)]`.
+    Leaf,
+}
+
+impl FieldMode {
+    /// The code that visits one field. `field` must evaluate to a reference that lives as long as
+    /// `self`.
+    fn apply(self, field: &TokenStream) -> TokenStream {
+        match self {
+            FieldMode::Visit => quote! {
+                ::typesift::TypeSift::visit::<__T, __B, __F>(#field, __visitor)?;
+            },
+            // The field's type needs no impl here, only `'static`, so the type check that
+            // `TypeSift::visit_self` performs is inlined instead of called.
+            FieldMode::Leaf => quote! {
+                if let ::core::option::Option::Some(__matched) =
+                    (#field as &dyn ::core::any::Any).downcast_ref::<__T>()
+                {
+                    __visitor(__matched)?;
+                }
+            },
+            FieldMode::Skip => TokenStream::new(),
+        }
     }
 }
 
-/// Whether `field` is marked `#[typesift(skip)]`. Any other `typesift` argument is an error.
-fn is_skipped(field: &Field) -> syn::Result<bool> {
-    let mut skip = false;
+/// Reads the `typesift` attributes of one field.
+fn field_mode(field: &Field) -> syn::Result<FieldMode> {
+    let mut mode = FieldMode::Visit;
     for attr in typesift_attributes(&field.attrs) {
         attr.parse_nested_meta(|meta| {
-            if !meta.path.is_ident("skip") {
-                return Err(meta.error("unknown `typesift` argument, expected `skip`"));
+            let found = if meta.path.is_ident("skip") {
+                FieldMode::Skip
+            } else if meta.path.is_ident("leaf") {
+                FieldMode::Leaf
+            } else {
+                return Err(meta.error("unknown `typesift` argument, expected `skip` or `leaf`"));
+            };
+
+            if mode == FieldMode::Visit {
+                mode = found;
+                Ok(())
+            } else if mode == found {
+                Err(meta.error(match found {
+                    FieldMode::Leaf => "duplicate `leaf`",
+                    _ => "duplicate `skip`",
+                }))
+            } else {
+                Err(meta.error("`skip` and `leaf` cannot be combined"))
             }
-            if skip {
-                return Err(meta.error("duplicate `skip`"));
-            }
-            skip = true;
-            Ok(())
         })?;
     }
-    Ok(skip)
+    Ok(mode)
 }
 
 /// `typesift` attributes only have a meaning on fields, so anywhere else they are an error.
@@ -184,6 +226,12 @@ mod tests {
             .to_string()
     }
 
+    fn generated_code(input: DeriveInput) -> String {
+        expand(input)
+            .expect("the derive should succeed")
+            .to_string()
+    }
+
     #[test]
     fn typesift_attribute_is_rejected_outside_fields() {
         let on_struct = parse_quote! {
@@ -199,7 +247,7 @@ mod tests {
 
         let on_variant = parse_quote! {
             enum Event {
-                #[typesift(skip)]
+                #[typesift(leaf)]
                 Login(u64),
             }
         };
@@ -210,7 +258,7 @@ mod tests {
     }
 
     #[test]
-    fn skip_is_the_only_argument_and_appears_once() {
+    fn arguments_are_known_and_appear_once() {
         let unknown = parse_quote! {
             struct Session {
                 #[typesift(rename)]
@@ -219,23 +267,35 @@ mod tests {
         };
         assert_eq!(
             error_message(unknown),
-            "unknown `typesift` argument, expected `skip`"
+            "unknown `typesift` argument, expected `skip` or `leaf`"
         );
 
-        let duplicate = parse_quote! {
+        let duplicate_skip = parse_quote! {
             struct Session {
                 #[typesift(skip, skip)]
                 user: u64,
             }
         };
-        assert_eq!(error_message(duplicate), "duplicate `skip`");
+        assert_eq!(error_message(duplicate_skip), "duplicate `skip`");
 
-        let duplicate_attributes = parse_quote! {
-            enum Event {
-                Login(#[typesift(skip)] #[typesift(skip)] u64),
+        let duplicate_leaf = parse_quote! {
+            struct Session {
+                #[typesift(leaf)]
+                #[typesift(leaf)]
+                user: u64,
             }
         };
-        assert_eq!(error_message(duplicate_attributes), "duplicate `skip`");
+        assert_eq!(error_message(duplicate_leaf), "duplicate `leaf`");
+
+        let combined = parse_quote! {
+            enum Event {
+                Login(#[typesift(skip, leaf)] u64),
+            }
+        };
+        assert_eq!(
+            error_message(combined),
+            "`skip` and `leaf` cannot be combined"
+        );
 
         let without_arguments = parse_quote! {
             struct Session {
@@ -248,23 +308,37 @@ mod tests {
 
     #[test]
     fn skipped_fields_are_left_out_of_the_generated_code() {
-        let input = parse_quote! {
+        let generated = generated_code(parse_quote! {
             struct Session {
                 user: u64,
                 #[typesift(skip)]
                 cache: Cache,
             }
-        };
-        let generated = expand(input).expect("the derive succeeds").to_string();
+        });
         assert!(generated.contains("user"));
         assert!(!generated.contains("cache"));
 
-        let input = parse_quote! {
+        let generated = generated_code(parse_quote! {
             enum Event {
                 Login { user: u64, #[typesift(skip)] token: Token },
             }
-        };
-        let generated = expand(input).expect("the derive succeeds").to_string();
+        });
         assert!(generated.contains("token : _"));
+    }
+
+    #[test]
+    fn leaf_fields_are_checked_by_type_instead_of_visited() {
+        let generated = generated_code(parse_quote! {
+            struct Invoice {
+                #[typesift(leaf)]
+                id: Uuid,
+                amount: u64,
+            }
+        });
+        assert!(generated.contains("downcast_ref"));
+        assert!(generated.contains("self . id"));
+        // The field is offered, never walked into.
+        assert!(!generated.contains("visit :: < __T , __B , __F > (& self . id"));
+        assert!(generated.contains("visit :: < __T , __B , __F > (& self . amount"));
     }
 }

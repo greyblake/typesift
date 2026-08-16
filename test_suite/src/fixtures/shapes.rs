@@ -142,6 +142,43 @@ pub struct GenericWithSkipped<T> {
     pub weak: Weak<T>,
 }
 
+/// Stands in for a type from another crate: it has no `TypeSift` impl and cannot get one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Foreign(pub u32);
+
+/// `foreign` has no impl. `markers` has one, but `leaf` stops the walk at it anyway.
+#[derive(Debug, TypeSift)]
+pub struct WithLeaf {
+    pub visible: Marker,
+    #[typesift(leaf)]
+    pub foreign: Foreign,
+    #[typesift(leaf)]
+    pub markers: Vec<Marker>,
+}
+
+#[derive(Debug, TypeSift)]
+pub struct TupleWithLeaf(#[typesift(leaf)] pub Foreign, pub Marker);
+
+#[derive(Debug, TypeSift)]
+pub enum VariantsWithLeaf {
+    Named {
+        #[typesift(leaf)]
+        foreign: Foreign,
+        visible: Marker,
+    },
+    Tuple(#[typesift(leaf)] Vec<Marker>, Marker),
+}
+
+/// Both arguments in one type.
+#[derive(Debug, TypeSift)]
+pub struct SkipAndLeaf {
+    #[typesift(skip)]
+    pub lock: Mutex<Marker>,
+    #[typesift(leaf)]
+    pub foreign: Foreign,
+    pub visible: Marker,
+}
+
 #[derive(Debug, TypeSift)]
 pub struct SelfRef {
     pub marker: Marker,

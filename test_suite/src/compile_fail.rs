@@ -275,3 +275,52 @@
 //!     hits: std::cell::Cell<u32>,
 //! }
 //! ```
+//!
+//! # UI13: `leaf` follows the same argument rules
+//!
+//! ```compile_fail
+//! struct Uuid;
+//!
+//! #[derive(typesift::TypeSift)]
+//! struct Invoice {
+//!     #[typesift(leaf, leaf)]
+//!     id: Uuid,
+//! }
+//! ```
+//!
+//! ```compile_fail
+//! struct Uuid;
+//!
+//! #[derive(typesift::TypeSift)]
+//! struct Invoice {
+//!     #[typesift(skip, leaf)]
+//!     id: Uuid,
+//! }
+//! ```
+//!
+//! ```
+//! struct Uuid;
+//!
+//! #[derive(typesift::TypeSift)]
+//! struct Invoice {
+//!     #[typesift(leaf)]
+//!     id: Uuid,
+//! }
+//! ```
+//!
+//! # UI14: a leaf field is found although its type has no impl
+//!
+//! ```
+//! use typesift::TypeSift;
+//!
+//! #[derive(Debug, PartialEq)]
+//! struct Uuid(u8);
+//!
+//! #[derive(TypeSift)]
+//! struct Invoice {
+//!     #[typesift(leaf)]
+//!     id: Uuid,
+//! }
+//!
+//! assert_eq!(Invoice { id: Uuid(7) }.sift::<Uuid>(), [&Uuid(7)]);
+//! ```

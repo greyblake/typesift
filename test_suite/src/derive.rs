@@ -11,10 +11,10 @@ use typesift::TypeSift;
 use crate::fixtures::ids::{Marker, NodeId, TaskId, TeamId, UserId};
 use crate::fixtures::org::Assignee;
 use crate::fixtures::shapes::{
-    Discriminants, EmptyBraced, EmptyTuple, GenericWithSkipped, HygieneNames, MutualA, MutualB,
-    NamedStruct, Nested, Never, Pair, RawIdents, SelfRef, SingleVariant, TupleStruct,
-    TupleWithSkipped, Typed, UnitStruct, Variants, VariantsWithSkipped, WithCfg, WithDefault,
-    WithSkipped, Wrapper, no_import, shadow,
+    Discriminants, EmptyBraced, EmptyTuple, Foreign, GenericWithSkipped, HygieneNames, MutualA,
+    MutualB, NamedStruct, Nested, Never, Pair, RawIdents, SelfRef, SingleVariant, SkipAndLeaf,
+    TupleStruct, TupleWithLeaf, TupleWithSkipped, Typed, UnitStruct, Variants, VariantsWithLeaf,
+    VariantsWithSkipped, WithCfg, WithDefault, WithLeaf, WithSkipped, Wrapper, no_import, shadow,
 };
 use crate::fixtures::trees::{List, Tree, list, numbered_tree};
 use crate::helpers::{assert_same_refs, sorted};
@@ -297,4 +297,54 @@ fn skipped_field_in_a_generic_struct() {
         weak: Rc::downgrade(&shared),
     };
     assert_same_refs(&value.sift::<Marker>(), &[&value.value]);
+}
+
+// D19
+#[test]
+fn leaf_fields_are_found_but_not_searched() {
+    let value = WithLeaf {
+        visible: Marker(1),
+        foreign: Foreign(2),
+        markers: vec![Marker(3), Marker(4)],
+    };
+    // A leaf field is found as itself, although `Foreign` has no `TypeSift` impl.
+    assert_same_refs(&value.sift::<Foreign>(), &[&value.foreign]);
+    assert_same_refs(&value.sift::<Vec<Marker>>(), &[&value.markers]);
+    // Nothing inside a leaf field is reached.
+    assert_same_refs(&value.sift::<Marker>(), &[&value.visible]);
+    assert_eq!(value.sift::<u32>(), [&1]);
+
+    let tuple = TupleWithLeaf(Foreign(1), Marker(2));
+    assert_same_refs(&tuple.sift::<Foreign>(), &[&tuple.0]);
+    assert_same_refs(&tuple.sift::<Marker>(), &[&tuple.1]);
+}
+
+// D20
+#[test]
+fn leaf_fields_in_enum_variants() {
+    let variants = [
+        VariantsWithLeaf::Named {
+            foreign: Foreign(1),
+            visible: Marker(2),
+        },
+        VariantsWithLeaf::Tuple(vec![Marker(3)], Marker(4)),
+    ];
+    assert_eq!(variants.sift::<Foreign>(), [&Foreign(1)]);
+    let markers: Vec<u32> = variants.sift::<Marker>().iter().map(|m| m.0).collect();
+    assert_eq!(markers, [2, 4]);
+    assert_eq!(variants.sift::<Vec<Marker>>().len(), 1);
+    assert_eq!(variants.sift::<VariantsWithLeaf>().len(), 2);
+}
+
+// D21
+#[test]
+fn skip_and_leaf_in_one_type() {
+    let value = SkipAndLeaf {
+        lock: Mutex::new(Marker(1)),
+        foreign: Foreign(2),
+        visible: Marker(3),
+    };
+    assert_same_refs(&value.sift::<Marker>(), &[&value.visible]);
+    assert_same_refs(&value.sift::<Foreign>(), &[&value.foreign]);
+    assert_eq!(value.sift::<u32>(), [&3]);
 }

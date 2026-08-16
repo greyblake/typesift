@@ -207,6 +207,40 @@
 //! The attribute works on fields of structs and of enum variants. A type parameter still needs a
 //! `TypeSift` impl even when only skipped fields use it.
 //!
+//! # Types from other crates
+//!
+//! A type you don't own can't implement `TypeSift`, because both the trait and the type would be
+//! foreign to your crate. Mark such a field `#[typesift(leaf)]`: it is offered to the visitor like
+//! any other value, but never looked inside, so its type only has to be `'static`.
+//!
+//! ```
+//! use typesift::TypeSift;
+//!
+//! // Stands in for a type from another crate.
+//! #[derive(Debug, PartialEq)]
+//! struct Uuid([u8; 16]);
+//!
+//! #[derive(TypeSift)]
+//! struct Invoice {
+//!     #[typesift(leaf)]
+//!     id: Uuid,
+//!     amount: u64,
+//! }
+//!
+//! let invoice = Invoice {
+//!     id: Uuid([7; 16]),
+//!     amount: 100,
+//! };
+//!
+//! assert_eq!(invoice.sift::<Uuid>(), [&Uuid([7; 16])]);
+//! assert_eq!(invoice.sift::<u64>(), [&100]);
+//! // The bytes inside `id` are not searched.
+//! assert!(invoice.sift::<[u8; 16]>().is_empty());
+//! ```
+//!
+//! `leaf` also works on types that do implement `TypeSift`, when you want the field found but its
+//! contents left alone.
+//!
 //! # Supported types
 //!
 //! - Structs and enums with `#[derive(TypeSift)]`, including generic ones. Every type parameter
@@ -240,6 +274,8 @@
 //! - `Cell`, `RefCell`, `Mutex` and other interior-mutability types are not supported, because
 //!   they cannot hand out references to their contents for as long as the outer value is borrowed.
 //!   Mark such fields `#[typesift(skip)]`.
+//! - A type from another crate cannot implement the trait, because of the orphan rule. Mark such
+//!   fields `#[typesift(leaf)]` to have them found without being searched.
 //! - The traversal recurses once per nesting level, so very deep values (tens of thousands of
 //!   levels in a debug build) can overflow the stack.
 //! - The derive cannot be used on a type with a type parameter named `__T`, `__B` or `__F`.

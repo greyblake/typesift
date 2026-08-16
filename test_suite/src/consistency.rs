@@ -11,7 +11,8 @@ use crate::fixtures::ids::{Absent, Marker, NodeId, TaskId, UserId};
 use crate::fixtures::json::{Json, sample_json};
 use crate::fixtures::org::{Org, Task, Team, sample_org};
 use crate::fixtures::shapes::{
-    MutualA, MutualB, SelfRef, Variants, VariantsWithSkipped, WithSkipped,
+    Foreign, MutualA, MutualB, SelfRef, Variants, VariantsWithLeaf, VariantsWithSkipped, WithLeaf,
+    WithSkipped,
 };
 use crate::fixtures::trees::{Entry, Folder, List, Tree, list, numbered_tree, shared_folders};
 use crate::helpers::{check_consistency, count};
@@ -98,6 +99,22 @@ fn shapes() {
         VariantsWithSkipped::AllSkipped(Cell::new(6)),
     ];
     check!(&variants_with_skipped => VariantsWithSkipped, Marker, u32);
+
+    let with_leaf = WithLeaf {
+        visible: Marker(1),
+        foreign: Foreign(2),
+        markers: vec![Marker(3)],
+    };
+    check!(&with_leaf => WithLeaf, Marker, Foreign, Vec<Marker>, u32);
+
+    let variants_with_leaf = [
+        VariantsWithLeaf::Named {
+            foreign: Foreign(1),
+            visible: Marker(2),
+        },
+        VariantsWithLeaf::Tuple(vec![Marker(3)], Marker(4)),
+    ];
+    check!(&variants_with_leaf => VariantsWithLeaf, Marker, Foreign, Vec<Marker>);
 }
 
 // C4
