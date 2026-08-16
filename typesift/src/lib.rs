@@ -268,17 +268,17 @@ pub use typesift_macros::TypeSift;
 
 /// A type that can be searched for nested values of any `'static` type.
 ///
-/// Only [`visit`](TypeSift::visit) needs to be implemented. [`sift`](TypeSift::sift)
-/// and [`sift_each`](TypeSift::sift_each) are built on top of it and should not be
-/// overridden.
+/// Only [`visit`](TypeSift::visit) needs to be implemented. The other methods are provided and
+/// should not be overridden.
 ///
 /// Usually implemented with `#[derive(TypeSift)]`. A manual implementation offers `self` to the
-/// visitor with [`visit_self`], then visits every field, propagating [`ControlFlow::Break`] with `?`:
+/// visitor with [`visit_self`](TypeSift::visit_self), then visits every field, propagating
+/// [`ControlFlow::Break`] with `?`:
 ///
 /// ```
 /// use std::ops::ControlFlow;
 ///
-/// use typesift::{TypeSift, visit_self};
+/// use typesift::TypeSift;
 ///
 /// struct Point {
 ///     x: i32,
@@ -290,7 +290,7 @@ pub use typesift_macros::TypeSift;
 ///     where
 ///         F: FnMut(&'a T) -> ControlFlow<B>,
 ///     {
-///         visit_self::<Self, T, B, F>(self, visitor)?;
+///         self.visit_self::<T, B, F>(visitor)?;
 ///         self.x.visit::<T, B, F>(visitor)?;
 ///         self.y.visit::<T, B, F>(visitor)
 ///     }
@@ -308,6 +308,22 @@ pub trait TypeSift: 'static {
     where
         F: FnMut(&'a T) -> ControlFlow<B>;
 
+    /// Offers `self` to `visitor` if its type is `T`.
+    ///
+    /// This is the first step of every [`visit`](TypeSift::visit) implementation. Unsized types
+    /// cannot call it, and never need to: `T` is always sized, so an unsized value can never be a
+    /// match.
+    fn visit_self<'a, T: 'static, B, F>(&'a self, visitor: &mut F) -> ControlFlow<B>
+    where
+        Self: Sized,
+        F: FnMut(&'a T) -> ControlFlow<B>,
+    {
+        match (self as &dyn Any).downcast_ref::<T>() {
+            Some(matched) => visitor(matched),
+            None => ControlFlow::Continue(()),
+        }
+    }
+
     /// Collects references to every nested value of type `T`.
     fn sift<T: 'static>(&self) -> Vec<&T> {
         let mut values = Vec::new();
@@ -324,19 +340,6 @@ pub trait TypeSift: 'static {
     }
 }
 
-/// Offers `value` itself to `visitor` if its type is `T`.
-///
-/// This is the first step of every [`TypeSift::visit`] implementation.
-pub fn visit_self<'a, S: 'static, T: 'static, B, F>(value: &'a S, visitor: &mut F) -> ControlFlow<B>
-where
-    F: FnMut(&'a T) -> ControlFlow<B>,
-{
-    match (value as &dyn Any).downcast_ref::<T>() {
-        Some(matched) => visitor(matched),
-        None => ControlFlow::Continue(()),
-    }
-}
-
 macro_rules! impl_type_sift_for_leaf {
     ($($leaf:ty),* $(,)?) => {$(
         impl TypeSift for $leaf {
@@ -344,7 +347,7 @@ macro_rules! impl_type_sift_for_leaf {
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
             {
-                visit_self::<Self, T, B, F>(self, visitor)
+                self.visit_self::<T, B, F>(visitor)
             }
         }
     )*};
@@ -391,7 +394,7 @@ impl<X: ?Sized + 'static> TypeSift for PhantomData<X> {
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
     {
-        visit_self::<Self, T, B, F>(self, visitor)
+        self.visit_self::<T, B, F>(visitor)
     }
 }
 
@@ -424,7 +427,7 @@ macro_rules! impl_type_sift_for_collection {
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
             {
-                visit_self::<Self, T, B, F>(self, visitor)?;
+                self.visit_self::<T, B, F>(visitor)?;
                 self.iter().try_for_each(|item| item.visit::<T, B, F>(visitor))
             }
         }
@@ -447,7 +450,7 @@ macro_rules! impl_type_sift_for_map {
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
             {
-                visit_self::<Self, T, B, F>(self, visitor)?;
+                self.visit_self::<T, B, F>(visitor)?;
                 self.iter().try_for_each(|(key, value)| {
                     key.visit::<T, B, F>(visitor)?;
                     value.visit::<T, B, F>(visitor)
@@ -464,7 +467,7 @@ impl<X: TypeSift, const N: usize> TypeSift for [X; N] {
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
     {
-        visit_self::<Self, T, B, F>(self, visitor)?;
+        self.visit_self::<T, B, F>(visitor)?;
         self.iter()
             .try_for_each(|item| item.visit::<T, B, F>(visitor))
     }
@@ -477,7 +480,7 @@ macro_rules! impl_type_sift_for_pointer {
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
             {
-                visit_self::<Self, T, B, F>(self, visitor)?;
+                self.visit_self::<T, B, F>(visitor)?;
                 (**self).visit::<T, B, F>(visitor)
             }
         }
@@ -493,7 +496,7 @@ impl<X: ?Sized + ToOwned + TypeSift> TypeSift for Cow<'static, X> {
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
     {
-        visit_self::<Self, T, B, F>(self, visitor)?;
+        self.visit_self::<T, B, F>(visitor)?;
         (**self).visit::<T, B, F>(visitor)
     }
 }
@@ -503,7 +506,7 @@ impl<X: TypeSift> TypeSift for Reverse<X> {
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
     {
-        visit_self::<Self, T, B, F>(self, visitor)?;
+        self.visit_self::<T, B, F>(visitor)?;
         self.0.visit::<T, B, F>(visitor)
     }
 }
@@ -513,7 +516,7 @@ impl<X: TypeSift> TypeSift for Option<X> {
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
     {
-        visit_self::<Self, T, B, F>(self, visitor)?;
+        self.visit_self::<T, B, F>(visitor)?;
         match self {
             Some(value) => value.visit::<T, B, F>(visitor),
             None => ControlFlow::Continue(()),
@@ -526,7 +529,7 @@ impl<X: TypeSift, E: TypeSift> TypeSift for Result<X, E> {
     where
         F: FnMut(&'a T) -> ControlFlow<B>,
     {
-        visit_self::<Self, T, B, F>(self, visitor)?;
+        self.visit_self::<T, B, F>(visitor)?;
         match self {
             Ok(value) => value.visit::<T, B, F>(visitor),
             Err(error) => error.visit::<T, B, F>(visitor),
@@ -543,7 +546,7 @@ macro_rules! impl_type_sift_for_tuples {
             where
                 F: FnMut(&'a T) -> ControlFlow<B>,
             {
-                visit_self::<Self, T, B, F>(self, visitor)?;
+                self.visit_self::<T, B, F>(visitor)?;
                 let ($binding, $($rest_binding,)*) = self;
                 $binding.visit::<T, B, F>(visitor)?;
                 $($rest_binding.visit::<T, B, F>(visitor)?;)*

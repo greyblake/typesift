@@ -59,7 +59,7 @@ fn expand(mut input: DeriveInput) -> syn::Result<TokenStream> {
             where
                 __F: ::core::ops::FnMut(&'__a __T) -> ::core::ops::ControlFlow<__B>,
             {
-                ::typesift::visit_self::<Self, __T, __B, __F>(self, __visitor)?;
+                ::typesift::TypeSift::visit_self::<__T, __B, __F>(self, __visitor)?;
                 #body
             }
         }
