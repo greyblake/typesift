@@ -1,7 +1,8 @@
-//! Find every value of a given type inside a nested data structure.
+//! A derive macro that walks structs, enums, collections and maps to collect every value of a
+//! given type.
 //!
 //! Derive [`TypeSift`](derive@TypeSift) on your types, then ask any value for all the `T`s it
-//! contains: `order.sift::<UserId>()` returns a reference to every `UserId` inside `order`,
+//! contains: `group.sift::<UserId>()` returns a reference to every `UserId` inside `group`,
 //! however deeply it is nested in structs, enums, collections, maps, options or smart pointers.
 //! Nothing has to be written per field, so the search stays correct as the types grow.
 //!
@@ -11,33 +12,32 @@
 //! use typesift::TypeSift;
 //!
 //! #[derive(Debug, PartialEq, TypeSift)]
-//! struct UserId(i32);
+//! struct UserId(u64);
 //!
 //! #[derive(TypeSift)]
-//! struct User {
-//!     id: UserId,
+//! struct Group {
 //!     name: String,
-//!     friend_ids: Vec<UserId>,
+//!     admin: UserId,
+//!     members: Vec<UserId>,
 //! }
 //!
-//! let user = User {
-//!     id: UserId(1),
-//!     name: "Alice".to_string(),
-//!     friend_ids: vec![UserId(4), UserId(43)],
+//! let group = Group {
+//!     name: "Core".to_string(),
+//!     admin: UserId(7),
+//!     members: vec![UserId(12), UserId(9)],
 //! };
 //!
-//! // Collect references, in traversal order.
-//! assert_eq!(user.sift::<UserId>(), [&UserId(1), &UserId(4), &UserId(43)]);
-//! assert_eq!(user.sift::<String>(), ["Alice"]);
+//! // Get references to all values of type `UserId` inside of `group`
+//! let user_ids = group.sift::<UserId>();
+//! assert_eq!(user_ids, [&UserId(7), &UserId(12), &UserId(9)]);
 //! ```
 //!
 //! # Motivation
 //!
-//! API responses are often graphs of DTOs that refer to other resources by id. Before responding,
-//! you want to load those resources, ideally with one batched query instead of one query per
-//! reference, and serve them next to the graph. Collecting the ids usually takes a hand-written
-//! function that walks every field, and that function silently goes stale when someone adds
-//! another field holding an id.
+//! Big API responses tend to be graphs of DTOs that point at other resources by id. Before
+//! responding you want those resources loaded, ideally with one batched query instead of one per
+//! reference, and served next to the graph. Collecting the ids normally means a function that
+//! walks every field by hand, and that function may quietly go stale when a new field is added.
 //!
 //! With `typesift` the ids are found by their type. Adding, say, `reviewer: Option<UserId>` to
 //! `TaskDto` below needs no change to the loading code:
@@ -141,7 +141,7 @@
 //!
 //! [`sift`](TypeSift::sift) collects references into a `Vec`. [`sift_each`](TypeSift::sift_each)
 //! hands each value to a closure without allocating, and [`visit`](TypeSift::visit) lets the
-//! closure stop the traversal early. With `user` from the [Usage](#usage) example:
+//! closure stop the traversal early. With `group` from the [Usage](#usage) example:
 //!
 //! ```
 //! use std::ops::ControlFlow;
@@ -149,35 +149,35 @@
 //! # use typesift::TypeSift;
 //! #
 //! # #[derive(Debug, PartialEq, TypeSift)]
-//! # struct UserId(i32);
+//! # struct UserId(u64);
 //! #
 //! # #[derive(TypeSift)]
-//! # struct User {
-//! #     id: UserId,
+//! # struct Group {
 //! #     name: String,
-//! #     friend_ids: Vec<UserId>,
+//! #     admin: UserId,
+//! #     members: Vec<UserId>,
 //! # }
 //! #
-//! # let user = User {
-//! #     id: UserId(1),
-//! #     name: "Alice".to_string(),
-//! #     friend_ids: vec![UserId(4), UserId(43)],
+//! # let group = Group {
+//! #     name: "Core".to_string(),
+//! #     admin: UserId(7),
+//! #     members: vec![UserId(12), UserId(9)],
 //! # };
 //! #
 //! // Handle each value without allocating.
 //! let mut total = 0;
-//! user.sift_each::<UserId>(|id| total += id.0);
-//! assert_eq!(total, 48);
+//! group.sift_each::<UserId>(|id| total += id.0);
+//! assert_eq!(total, 28);
 //!
-//! // Stop at the first match.
-//! let first_friend = user.visit::<UserId, &UserId, _>(&mut |id| {
-//!     if id.0 == 1 {
+//! // Stop at the first member who isn't the admin.
+//! let member = group.visit::<UserId, &UserId, _>(&mut |id| {
+//!     if id.0 == 7 {
 //!         ControlFlow::Continue(())
 //!     } else {
 //!         ControlFlow::Break(id)
 //!     }
 //! });
-//! assert_eq!(first_friend, ControlFlow::Break(&UserId(4)));
+//! assert_eq!(member, ControlFlow::Break(&UserId(12)));
 //! ```
 //!
 //! # Types from other crates
