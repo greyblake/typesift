@@ -2,6 +2,7 @@
 name = "typesift_macros"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
 authors = ["Serhii Potapov <blake131313@gmail.com>"]
 license = "MIT"
 
