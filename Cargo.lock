@@ -1036,9 +1036,18 @@ dependencies = [
  "serde_json",
  "smallvec",
  "time",
- "typesift_macros",
+ "typesift-macros",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "typesift-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -1047,15 +1056,6 @@ version = "0.0.0"
 dependencies = [
  "criterion",
  "typesift",
-]
-
-[[package]]
-name = "typesift_macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.119",
 ]
 
 [[package]]

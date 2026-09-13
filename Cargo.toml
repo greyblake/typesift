@@ -4,7 +4,7 @@ resolver = "3"
 
 members = [
     "typesift",
-    "typesift_macros",
+    "typesift-macros",
     "test_suite",
     "benchmarks",
 ]

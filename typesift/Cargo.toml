@@ -6,11 +6,13 @@ rust-version = "1.85"
 authors = ["Serhii Potapov <blake131313@gmail.com>"]
 license = "MIT"
 description = "A derive macro that walks structs, enums, collections and maps to collect every value of a given type"
+keywords = ["derive", "traversal", "visitor", "reflection", "nested"]
+categories = ["rust-patterns", "data-structures"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-typesift_macros = { version = "0.1.0", path = "../typesift_macros" }
+typesift-macros = { version = "0.1.0", path = "../typesift-macros" }
 bytes = { version = "1", optional = true, default-features = false }
 chrono = { version = "0.4", optional = true, default-features = false }
 enum-map = { version = "3", optional = true, default-features = false }
