@@ -1,10 +1,13 @@
-//! A DTO graph and two ways to collect the `UserId`s in it.
+//! A DTO graph and three ways to collect the `UserId`s in it.
 //!
 //! - [`Company::user_ids`] returns `impl Iterator`, which is what most people reach for. The
 //!   caller pulls values out with `next`, through five levels of `Chain` and `FlatMap`.
+//! - [`Company::collect_user_ids`] pushes straight into a `Vec` the caller owns. No laziness, no
+//!   generics, no state to resume: about as fast as this walk can be written by hand, so it is
+//!   the floor the other two are measured against.
 //! - `sift` from `typesift`.
 //!
-//! Both must produce the same references in the same order, which `manual_and_typesift_agree`
+//! All three must produce the same references in the same order, which `all_traversals_agree`
 //! checks. Without that, the comparison means nothing.
 //!
 //! The graph nests five levels deep: [`Company`] > [`Department`] > [`Team`] > [`Project`] >
@@ -116,7 +119,67 @@ impl Task {
     }
 }
 
-/// The graph both traversals run over. Deterministic, so runs are comparable.
+// The same walk written for speed rather than for reuse: a concrete `&mut Vec` to push into, no
+// generics and nothing lazy, so it inlines into plain nested loops. `&'a self` is tied to
+// `&'a UserId` so the references may outlive the call and live on in the caller's vector.
+
+impl Company {
+    pub fn collect_user_ids<'a>(&'a self, out: &mut Vec<&'a UserId>) {
+        out.push(&self.owner);
+        for department in &self.departments {
+            department.collect_user_ids(out);
+        }
+    }
+}
+
+impl Department {
+    pub fn collect_user_ids<'a>(&'a self, out: &mut Vec<&'a UserId>) {
+        out.push(&self.head);
+        for team in &self.teams {
+            team.collect_user_ids(out);
+        }
+    }
+}
+
+impl Team {
+    pub fn collect_user_ids<'a>(&'a self, out: &mut Vec<&'a UserId>) {
+        out.push(&self.lead);
+        out.extend(self.members.iter());
+        for project in &self.projects {
+            project.collect_user_ids(out);
+        }
+    }
+}
+
+impl Project {
+    pub fn collect_user_ids<'a>(&'a self, out: &mut Vec<&'a UserId>) {
+        out.push(&self.owner);
+        out.extend(self.reviewers.iter());
+        self.status.collect_user_ids(out);
+        for task in &self.tasks {
+            task.collect_user_ids(out);
+        }
+    }
+}
+
+impl Status {
+    pub fn collect_user_ids<'a>(&'a self, out: &mut Vec<&'a UserId>) {
+        if let Status::Blocked { by } = self {
+            out.push(by);
+        }
+    }
+}
+
+impl Task {
+    pub fn collect_user_ids<'a>(&'a self, out: &mut Vec<&'a UserId>) {
+        if let Some(assignee) = &self.assignee {
+            out.push(assignee);
+        }
+        out.extend(self.watchers.iter());
+    }
+}
+
+/// The graph all three traversals run over. Deterministic, so runs are comparable.
 pub fn sample_company() -> Company {
     let mut next_id = 0;
     let mut id = || {
@@ -178,13 +241,20 @@ pub fn sample_company() -> Company {
 mod tests {
     use super::*;
 
-    /// The benchmark is only meaningful if both traversals do the same work.
+    /// The benchmark is only meaningful if all three traversals do the same work.
     #[test]
-    fn manual_and_typesift_agree() {
+    fn all_traversals_agree() {
         let company = sample_company();
-        let manual: Vec<&UserId> = company.user_ids().collect();
+
+        let iterator: Vec<&UserId> = company.user_ids().collect();
+
+        let mut collector: Vec<&UserId> = Vec::new();
+        company.collect_user_ids(&mut collector);
+
         let sifted = company.sift::<UserId>();
-        assert_eq!(manual, sifted);
+
+        assert_eq!(iterator, collector);
+        assert_eq!(iterator, sifted);
     }
 
     #[test]

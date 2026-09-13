@@ -65,6 +65,23 @@ Everything involved has to be `'static`, so the derive rejects types with lifeti
 Interior mutability isn't supported; skip those fields.
 
 
+## Benchmarks
+
+Run benchmarks with `just bench`.
+
+| variant | time | per id | vs baseline |
+|---|---|---|---|
+| `manual_collector` (baseline) | 3.82 µs | 1.11 ns | - |
+| `typesift` | 5.48 µs | 1.59 ns | 1.43x slower |
+| `manual_iterator` | 31.78 µs | 9.23 ns | 8.3x  slower |
+
+- `manual_collector` walks the fields by hand and pushes into a `Vec`, which is about as fast as this
+gets.
+- `TypeSift` costs roughly 1.4x of that
+- `manual_iterator` is the same walk written as a chain of `impl Iterator`s, which is what most people
+reach for.
+
+
 ## License
 
 MIT © [Serhii Potapov](https://www.greyblake.com)
