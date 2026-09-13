@@ -40,3 +40,8 @@ clippy:
 # The docs build, with no broken intra-doc links.
 doc:
     RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --all-features
+
+# Compare typesift against a hand-written traversal. Not part of `default`, since it takes
+# minutes rather than seconds.
+bench:
+    cargo bench -p typesift_benchmarks

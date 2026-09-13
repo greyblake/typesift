@@ -1,0 +1,20 @@
+[package]
+name = "typesift_benchmarks"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Keeps `cargo bench` from running the lib's test harness as a benchmark, where it would reject
+# criterion's own arguments, such as `--quick`.
+[lib]
+bench = false
+
+[dependencies]
+typesift = { path = "../typesift" }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+
+[[bench]]
+name = "sift"
+harness = false
