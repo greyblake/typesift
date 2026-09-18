@@ -8,6 +8,7 @@ license = "MIT"
 description = "A derive macro that walks structs, enums, collections and maps to collect every value of a given type"
 keywords = ["derive", "traversal", "visitor", "reflection", "nested"]
 categories = ["rust-patterns", "data-structures"]
+repository = "https://github.com/greyblake/typesift"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

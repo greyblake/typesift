@@ -8,6 +8,7 @@ license = "MIT"
 description = "Implementation detail of the typesift crate: the #[derive(TypeSift)] macro"
 keywords = ["derive", "proc-macro", "macro", "traversal", "typesift"]
 categories = ["development-tools::procedural-macro-helpers"]
+repository = "https://github.com/greyblake/typesift"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
